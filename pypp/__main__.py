@@ -21,11 +21,19 @@ def main(argv):
     node = ast_parser.parse(args.input)
     generator = BoostPythonGenerator()
 
+    generated = generator.generate(node)
+
     print("// generate by pypp")
     print("// original source code:", args.input)
+
+    if generator.has_decl_code():
+        print("")
+        print(generator.decl_code())
+        print("\n")
+
     print("void init_{}() {{\n{}\n}}".format(
             name2snake(args.input),
-            generator.generate(node)
+            generated,
     ))
 
     return 0

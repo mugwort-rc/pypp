@@ -49,9 +49,18 @@ class CodeBlock(list):
 
 
 class BoostPythonGenerator(Generator):
+    def __init__(self):
+        self.decls = CodeBlock()
+
     def generate(self, node):
         assert isinstance(node, AstNode)
         return "\n".join(self.visit(node).to_code())
+
+    def has_decl_code(self):
+        return bool(self.decls)
+
+    def decl_code(self):
+        return "\n".join(self.decls.to_code(indent=-1))
 
     def visit_TRANSLATION_UNIT(self, node):
         return CodeBlock(self.visit(x) for x in node)
@@ -63,20 +72,32 @@ class BoostPythonGenerator(Generator):
 
     def visit_CLASS_DECL(self, node):
         name = node.ptr.spelling
+        class_ = name
+        if self.has_virtual_method(node):
+            class_ = "{}Wrapper".format(name)
         if self.has_constructor(node):
             ret = CodeBlock([
-                'boost::python::class_<{0}>("{0}")'.format(name),
+                'boost::python::class_<{}>("{}")'.format(class_, name),
             ])
         else:
             ret = CodeBlock([
-                'boost::python::class_<{0}>("{0}", boost::python::no_init)'.format(name),
+                'boost::python::class_<{}>("{}", boost::python::no_init)'.format(class_, name),
             ])
+        virtual_methods = []
         for child in node:
+            if child.ptr.kind.name == "DESTRUCTOR":
+                continue
+            if child.ptr.is_virtual_method():
+                virtual_methods.append(child)
             if child.ptr.access_specifier.name != "PUBLIC":
                 continue
             elif child.ptr.kind.name == "CXX_ACCESS_SPEC_DECL":
                 continue
             ret.append(self.visit(child))
+
+        if virtual_methods:
+            self.create_class_wrapper(name, class_, virtual_methods)
+
         ret.append(CodeBlock([";"]))
         return ret
 
@@ -88,11 +109,64 @@ class BoostPythonGenerator(Generator):
                 return True
         return False
 
+    def has_virtual_method(self, node):
+        for child in node:
+            if child.ptr.is_virtual_method():
+                return True
+        return False
+
+    def create_class_wrapper(self, base, class_, methods):
+        body = CodeBlock()
+        for method in methods:
+            result_type = method.ptr.result_type.spelling
+            name = method.ptr.spelling
+
+            args = []
+            args_with_type = []
+            for arg in method.ptr.get_arguments():
+                args.append(arg.spelling)
+                args_with_type.append("{} {}".format(arg.type.spelling, arg.spelling))
+            tmp = CodeBlock([
+                "{} {} ({}) {{".format(result_type, name, ", ".join(args_with_type))
+            ])
+
+            ret = ""
+            if result_type != "void":
+                ret = "return "
+            if method.ptr.is_pure_virtual_method():
+                tmp.append(CodeBlock([
+                    '{}this->get_override("{}")({});'.format(ret, name, ", ".join(args))
+                ]))
+            else:
+                tmp.append(CodeBlock([
+                    'if ( auto {0} = this->get_override("{0}") ) {{'.format(name),
+                    CodeBlock([
+                        "{}{}({});".format(ret, name, ", ".join(args)),
+                    ]),
+                    "} else {",
+                    CodeBlock([
+                        "{}{}::{}({});".format(ret, base, name, ", ".join(args)),
+                    ]),
+                    "}",
+                ]))
+            tmp.append("}")
+            body.append(tmp)
+        self.decls.append(CodeBlock([
+            "class {} : public {}".format(class_, base),
+            "{",
+            "public:",
+            body,
+            "};",
+        ]))
+
     def visit_CXX_METHOD(self, node):
         ret = CodeBlock()
         class_name = node.parent.ptr.spelling
         name = node.ptr.spelling
-        ret.append('.def("{1}", &{0}::{1})'.format(class_name, name))
+        if node.ptr.is_pure_virtual_method():
+            ret.append('.def("{1}", boost::python::pure_virtual(&{0}::{1}))'.format(class_name, name))
+        else:
+            ret.append('.def("{1}", &{0}::{1})'.format(class_name, name))
         if node.ptr.is_static_method():
             ret.append('.staticmethod("{}")'.format(name))
         return ret
