@@ -120,6 +120,9 @@ class BoostPythonGenerator(Generator):
         for method in methods:
             result_type = method.ptr.result_type.spelling
             name = method.ptr.spelling
+            const_type = ""
+            if method.ptr.is_const_method():
+                const_type = " const"
 
             args = []
             args_with_type = []
@@ -127,7 +130,12 @@ class BoostPythonGenerator(Generator):
                 args.append(arg.spelling)
                 args_with_type.append("{} {}".format(arg.type.spelling, arg.spelling))
             tmp = CodeBlock([
-                "{} {} ({}) {{".format(result_type, name, ", ".join(args_with_type))
+                "{} {} ({}){} {{".format(
+                    result_type,
+                    name,
+                    ", ".join(args_with_type),
+                    const_type
+                ),
             ])
 
             ret = ""
