@@ -14,10 +14,11 @@ from pypp.utils import name2snake
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
+    parser.add_argument("--include-path", "-I", nargs="+", default=[])
 
     args = parser.parse_args(argv)
 
-    ast_parser = AstParser()
+    ast_parser = AstParser(include_path=args.include_path)
     node = ast_parser.parse(args.input)
     generator = BoostPythonGenerator()
 

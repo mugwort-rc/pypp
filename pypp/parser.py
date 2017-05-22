@@ -55,6 +55,6 @@ class AstNodeRoot(AstNode):
             yield AstNode(child)
 
 
-def parse(source):
-    parser = AstParser()
+def parse(source, *args, **kwargs):
+    parser = AstParser(*args, **kwargs)
     return parser.parse(source)

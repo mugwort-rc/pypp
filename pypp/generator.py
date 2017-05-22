@@ -160,7 +160,11 @@ class BoostPythonGenerator(Generator):
             tmp.append("}")
             body.append(tmp)
         self.decls.append(CodeBlock([
-            "class {} : public {}".format(class_, base),
+            "class {} :".format(class_),
+            CodeBlock([
+                "public {},".format(base),
+                "public boost::python::wrapper<{}>".format(base),
+            ]),
             "{",
             "public:",
             body,
@@ -169,7 +173,7 @@ class BoostPythonGenerator(Generator):
 
     def visit_CXX_METHOD(self, node):
         ret = CodeBlock()
-        class_name = node.parent.ptr.spelling
+        class_name = node.ptr.semantic_parent.spelling
         name = node.ptr.spelling
         if node.ptr.is_pure_virtual_method():
             ret.append('.def("{1}", boost::python::pure_virtual(&{0}::{1}))'.format(class_name, name))

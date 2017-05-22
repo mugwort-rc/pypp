@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("header")
     parser.add_argument("--llvm-lib", default="/usr/lib/llvm-3.8/lib/libclang-3.8.so.1")
-    parser.add_argument("-I", "--include_path", dest="include_path", nargs="+", default=[])
+    parser.add_argument("-I", "--include-path", dest="include_path", nargs="+", default=[])
     parser.add_argument("-D", "--define", dest="defines", nargs="+", default=[])
 
     args = parser.parse_args()
