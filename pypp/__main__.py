@@ -15,10 +15,11 @@ def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
+    parser.add_argument("--defines", "-D", nargs="+", default=[])
 
     args = parser.parse_args(argv)
 
-    ast_parser = AstParser(include_path=args.include_path)
+    ast_parser = AstParser(include_path=args.include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
     generator = BoostPythonGenerator()
 

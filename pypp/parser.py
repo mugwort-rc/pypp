@@ -10,16 +10,18 @@ class AstParser(object):
         "-std=c++1y",
     ]
 
-    def __init__(self, include_path=[], lib_path=[]):
+    def __init__(self, include_path=[], lib_path=[], defines=[]):
         self.index = clang.cindex.Index.create()
         self.include_path = include_path
         self.lib_path = lib_path
+        self.defines = defines
 
     def parse(self, source):
         #assert source.endswith(".h") or source.endswith(".hpp")
         clang_args = list(self.clang_args)  # copy
         clang_args += ["-I"+x for x in self.include_path]
         clang_args += ["-L"+x for x in self.lib_path]
+        clang_args += ["-D"+x for x in self.defines]
 
         src = [
             ("<entrypoint>.cpp", '#include "{}"'.format(source)),
