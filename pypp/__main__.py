@@ -28,6 +28,11 @@ def main(argv):
     print("// generate by pypp")
     print("// original source code:", args.input)
 
+    print("")
+    print("#include <boost/python.hpp>")
+    print('#include "{}"'.format(args.input))
+    print("")
+
     if generator.has_decl_code():
         print("")
         print(generator.decl_code())
