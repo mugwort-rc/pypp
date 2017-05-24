@@ -6,6 +6,8 @@ from __future__ import print_function
 import argparse
 import sys
 import os
+import code
+import readline
 
 from pypp.parser import AstParser
 from pypp.generator import BoostPythonGenerator
@@ -17,6 +19,7 @@ def main(argv):
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
     parser.add_argument("--defvisitor", default=False, action="store_true")
+    parser.add_argument("--after-shell", default=False, action="store_true")
 
     args = parser.parse_args(argv)
 
@@ -50,6 +53,9 @@ def main(argv):
             name2snake(args.input),
             generated,
     ))
+
+    if args.after_shell:
+        code.interact(local=locals())
 
     return 0
 

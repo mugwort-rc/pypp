@@ -119,17 +119,21 @@ class BoostPythonMethod(BoostPythonFunction):
             result = CodeBlock([])
             for i, func in enumerate(self.functions, 1):
                 overloads = self.overloads(func, i)
-                decl = "static_cast<{2}({0}::*)({3}){4}>(&{0}::{1})".format(
+                cast_scope = "{}::".format(class_name)
+                if func.is_static_method():
+                    cast_scope = ""
+                decl = "static_cast<{2}({5}*)({3}){4}>(&{0}::{1})".format(
                     class_name,
                     self.name,
                     self.result_type(func),
                     ", ".join(self.arg_types(func)),
                     " const" if func.is_const_method() else "",
+                    cast_scope,
                 )
                 if func.is_pure_virtual_method():
                     decl = "boost::python::pure_virtual({})".format(decl)
                 result.append(
-                    '.def("{0}", {1}{2});'.format(
+                    '.def("{0}", {1}{2})'.format(
                         self.name,
                         decl,
                         overloads,
@@ -150,14 +154,18 @@ class BoostPythonMethod(BoostPythonFunction):
         if n == 0 or n == len(args):
             return ""
         else:
-            self.decls.append("BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS({0}{1}Overloads{2}, {0}::{1}, {3}, {4})".format(
+            base = "MEMBER_"
+            if node.is_static_method():
+                base = ""
+            self.decls.append("BOOST_PYTHON_{0}FUNCTION_OVERLOADS({1}{2}Overloads{3}, {1}::{2}, {4}, {5})".format(
+                base,
                 class_name,
                 self.name,
                 suffix,
                 n,
                 len(args),
             ))
-            return ", {}{}Overloads{}".format(class_name, self.name, suffix)
+            return ", {}{}Overloads{}()".format(class_name, self.name, suffix)
 
 
 class BoostPythonClass(object):
@@ -173,6 +181,9 @@ class BoostPythonClass(object):
 
     def add_method(self, node):
         assert node.semantic_parent.spelling == self.name
+        if node.kind == clang.cindex.CursorKind.CONSTRUCTOR:
+            self.constructors.append(node)
+            return
         # init if not added
         if node.spelling not in self.methods:
             self.methods[node.spelling] = BoostPythonMethod(node.spelling)
@@ -206,6 +217,9 @@ class BoostPythonClass(object):
     def decl_code(self):
         result = CodeBlock([])
         result += self.class_wrapper()
+        for item in self.methods.values():
+            if item.decls:
+                result += item.decls
         return result
 
     def to_code_block(self):
@@ -232,6 +246,8 @@ class BoostPythonClass(object):
             )
         elif constructor_count == 1:
             init = self.init(self.constructors[0])
+            if init:
+                init = ", {}".format(init)
             code.append('{0}boost::python::class_<{1}{4}>("{2}"{3})'.format(
                 assignment,
                 class_,
@@ -315,7 +331,7 @@ class BoostPythonClass(object):
             args = []
             args_with_type = []
             for i, arg in enumerate(method.get_arguments()):
-                args.append(arg.spelling)
+                args.append(arg.spelling or "_{}".format(i))
                 args_with_type.append("{} {}".format(arg.type.spelling, arg.spelling or "_{}".format(i)))
             tmp = CodeBlock([
                 "{} {} ({}){} {{".format(
@@ -460,7 +476,11 @@ class BoostPythonGenerator(Generator):
         self.classes[name] = BoostPythonClass(name, enable_defvisitor=self.enable_defvisitor)
         disable_copy_constructor = False
         disable_copy_operator = False
-        for child in node:
+        i = -1
+        for i, child in enumerate(node):
+            if child.ptr.access_specifier == clang.cindex.AccessSpecifier.INVALID:
+                i = -1
+                continue
             if child.ptr.kind == clang.cindex.CursorKind.DESTRUCTOR:
                 continue
             if child.ptr.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
@@ -481,6 +501,14 @@ class BoostPythonGenerator(Generator):
             self.visit(child)
 
         self.classes[name].set_noncopyable(disable_copy_constructor and disable_copy_operator)
+        # remove forward declaration
+        if i < 0:
+            del self.classes[name]
+
+    def visit_CONSTRUCTOR(self, node):
+        class_name = node.ptr.semantic_parent.spelling
+        assert class_name in self.classes
+        self.classes[class_name].add_method(node.ptr)
 
     def visit_CXX_METHOD(self, node):
         class_name = node.ptr.semantic_parent.spelling

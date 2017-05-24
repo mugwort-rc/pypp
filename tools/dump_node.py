@@ -4,6 +4,8 @@ import sys
 import os
 
 import argparse
+import code
+import readline
 
 import clang.cindex
 
@@ -20,6 +22,7 @@ def main():
     parser.add_argument("--llvm-lib", default="/usr/lib/llvm-3.8/lib/libclang-3.8.so.1")
     parser.add_argument("-I", "--include-path", dest="include_path", nargs="+", default=[])
     parser.add_argument("-D", "--define", dest="defines", nargs="+", default=[])
+    parser.add_argument("--shell", default=False, action="store_true")
 
     args = parser.parse_args()
 
@@ -39,11 +42,13 @@ def main():
     unit = index.parse("<entrypoint>.cpp", clang_args, src,
                         clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
 
-    decls = []
     for unit_cursor in unit.cursor.get_children():
         if not unit_cursor.location.file.name.endswith(args.header):
             continue
         print_node_tree(unit_cursor)
+
+    if args.shell:
+        code.interact(local=locals())
 
     return 0
 
