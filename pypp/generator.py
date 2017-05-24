@@ -5,7 +5,8 @@ from collections import OrderedDict
 
 import clang.cindex
 
-from parser import AstNode
+from .parser import AstNode
+from .utils import CodeBlock
 
 
 class NodeVisitor(object):
@@ -33,22 +34,6 @@ class NodeVisitor(object):
 class Generator(NodeVisitor):
     def generate(self, node):
         raise NotImplementedError
-
-
-class CodeBlock(list):
-
-    indent_base = " " * 4
-
-    def to_code(self, indent=0):
-        tmp = []
-        for x in self:
-            if x is None:
-                print("debug: skip block")
-            elif isinstance(x, CodeBlock):
-                tmp.extend(x.to_code(indent+1))
-            else:
-                tmp.append(self.indent_base*indent + x)
-        return tmp
 
 
 class BoostPythonFunction(object):
@@ -166,13 +151,14 @@ class BoostPythonMethod(BoostPythonFunction):
 
 
 class BoostPythonClass(object):
-    def __init__(self, name):
+    def __init__(self, name, enable_defvisitor=False):
         self.name = name
         self.methods = OrderedDict()
         self.static_methods = []
         self.virtual_methods = []
         self.constructors = []
         self.noncopyable = False
+        self.enable_defvisitor = enable_defvisitor
 
     def add_method(self, node):
         assert node.semantic_parent.spelling == self.name
@@ -240,6 +226,8 @@ class BoostPythonClass(object):
                 code.append('boost::python::class_<{0}{3}>("{1}", {2})'.format(class_, self.name, init, noncopy))
             for init in inits:
                 defs.append('.def({})'.format(init))
+        if self.enable_defvisitor:
+            defs.append(".def({}DefVisitor())".format(self.name))
         for item in self.methods.values():
             defs += item.to_code_block()
         if self.static_methods:
@@ -337,9 +325,10 @@ class BoostPythonClass(object):
 
 
 class BoostPythonGenerator(Generator):
-    def __init__(self):
+    def __init__(self, enable_defvisitor=False):
         self.classes = OrderedDict()
         self.functions = OrderedDict()
+        self.enable_defvisitor = enable_defvisitor
 
     def generate(self, node):
         assert isinstance(node, AstNode)
@@ -374,6 +363,13 @@ class BoostPythonGenerator(Generator):
                 block += value.decl_code()
         return "\n".join(block.to_code())
 
+    def def_visitors(self):
+        result = []
+        for class_ in self.classes.values():
+            if class_.enable_defvisitor:
+                result.append("{}DefVisitor".format(class_.name))
+        return result
+
     def visit_TRANSLATION_UNIT(self, node):
         for child in node:
             self.visit(child)
@@ -387,7 +383,7 @@ class BoostPythonGenerator(Generator):
     def visit_CLASS_DECL(self, node):
         name = node.ptr.spelling
         assert name not in self.classes
-        self.classes[name] = BoostPythonClass(name)
+        self.classes[name] = BoostPythonClass(name, enable_defvisitor=self.enable_defvisitor)
         disable_copy_constructor = False
         disable_copy_operator = False
         for child in node:

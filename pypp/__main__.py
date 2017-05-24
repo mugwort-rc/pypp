@@ -16,12 +16,15 @@ def main(argv):
     parser.add_argument("input")
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
+    parser.add_argument("--defvisitor", default=False, action="store_true")
 
     args = parser.parse_args(argv)
 
     ast_parser = AstParser(include_path=args.include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
-    generator = BoostPythonGenerator()
+    generator = BoostPythonGenerator(
+        enable_defvisitor=args.defvisitor,
+    )
 
     generated = generator.generate(node)
 
@@ -32,6 +35,11 @@ def main(argv):
     print("#include <boost/python.hpp>")
     print('#include "{}"'.format(args.input))
     print("")
+    if args.defvisitor:
+        print("")
+        for name in generator.def_visitors():
+            print('#include "{}.hpp"'.format(name))
+        print("")
 
     if generator.has_decl_code():
         print("")
