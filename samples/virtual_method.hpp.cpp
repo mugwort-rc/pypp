@@ -1,19 +1,25 @@
 // generate by pypp
 // original source code: ./samples/virtual_method.hpp
 
-class VirtualMethodWrapper : public VirtualMethod
+#include <boost/python.hpp>
+#include "./samples/virtual_method.hpp"
+
+
+class VirtualMethodWrapper :
+    public VirtualMethod,
+    public boost::python::wrapper<VirtualMethod>
 {
 public:
-        void v (int hoge) {
-            if ( auto v = this->get_override("v") ) {
-                v(hoge);
-            } else {
-                VirtualMethod::v(hoge);
-            }
+    void v (int hoge) {
+        if ( auto v = this->get_override("v") ) {
+            v(hoge);
+        } else {
+            VirtualMethod::v(hoge);
         }
-        int p (int x, int y) {
-            return this->get_override("p")(x, y);
-        }
+    }
+    int p (int x, int y) const {
+        return this->get_override("p")(x, y);
+    }
 };
 
 

@@ -107,21 +107,31 @@ class BoostPythonMethod(BoostPythonFunction):
     def to_code_block(self):
         class_name = self.functions[0].semantic_parent.spelling
         if len(self.functions) == 1:
-            overloads = self.overloads(self.functions[0])
+            func = self.functions[0]
+            overloads = self.overloads(func)
+            decl = "&{0}::{1}".format(class_name, self.name)
+            if func.is_pure_virtual_method():
+                decl = "boost::python::pure_virtual({})".format(decl)
             return CodeBlock([
-                '.def("{1}", &{0}::{1}{2})'.format(class_name, self.name, overloads),
+                '.def("{0}", {1}{2})'.format(self.name, decl, overloads),
             ])
         else:
             result = CodeBlock([])
             for i, func in enumerate(self.functions, 1):
                 overloads = self.overloads(func, i)
+                decl = "static_cast<{2}({0}::*)({3}){4}>(&{0}::{1})".format(
+                    class_name,
+                    self.name,
+                    self.result_type(func),
+                    ", ".join(self.arg_types(func)),
+                    " const" if func.is_const_method() else "",
+                )
+                if func.is_pure_virtual_method():
+                    decl = "boost::python::pure_virtual({})".format(decl)
                 result.append(
-                    '.def("{1}", static_cast<{2}({0}::*)({3}){4}>(&{0}::{1}){5});'.format(
-                        class_name,
+                    '.def("{0}", {1}{2});'.format(
                         self.name,
-                        self.result_type(func),
-                        ", ".join(self.arg_types(func)),
-                        " const" if func.is_const_method() else "",
+                        decl,
                         overloads,
                     )
                 )
@@ -151,7 +161,7 @@ class BoostPythonMethod(BoostPythonFunction):
 
 
 class BoostPythonClass(object):
-    def __init__(self, name, enable_defvisitor=False):
+    def __init__(self, name, enable_defvisitor=False, enable_scope=False):
         self.name = name
         self.methods = OrderedDict()
         self.static_methods = []
@@ -159,6 +169,7 @@ class BoostPythonClass(object):
         self.constructors = []
         self.noncopyable = False
         self.enable_defvisitor = enable_defvisitor
+        self.enable_scope = enable_scope
 
     def add_method(self, node):
         assert node.semantic_parent.spelling == self.name
@@ -174,6 +185,9 @@ class BoostPythonClass(object):
 
     def set_noncopyable(self, b):
         self.noncopyable = b
+
+    def set_enable_scope(self, enable):
+        self.enable_scope = enable
 
     def has_virtual_method(self):
         for method in self.virtual_methods:
@@ -197,6 +211,9 @@ class BoostPythonClass(object):
     def to_code_block(self):
         code = CodeBlock([])
         defs = CodeBlock([])
+        assignment = ""
+        if self.enable_scope:
+            assignment = "auto boost_python_{} = ".format(self.name)
         class_ = self.name
         if self.has_virtual_method():
             class_ = "{}Wrapper".format(self.name)
@@ -205,10 +222,23 @@ class BoostPythonClass(object):
             noncopy = ", boost::noncopyable"
         constructor_count = len(self.constructors)
         if constructor_count == 0:
-            code.append('boost::python::class_<{0}{2}>("{1}", boost::python::no_init)'.format(class_, self.name, noncopy))
+            code.append(
+            '{0}boost::python::class_<{1}{3}>("{2}", boost::python::no_init)'.format(
+                assignment,
+                class_,
+                self.name,
+                noncopy
+                )
+            )
         elif constructor_count == 1:
             init = self.init(self.constructors[0])
-            code.append('boost::python::class_<{0}{3}>("{1}"{2})'.format(class_, self.name, init, noncopy))
+            code.append('{0}boost::python::class_<{1}{4}>("{2}"{3})'.format(
+                assignment,
+                class_,
+                self.name,
+                init,
+                noncopy)
+            )
         else:
             has_default = False
             inits = []
@@ -219,11 +249,22 @@ class BoostPythonClass(object):
                     continue
                 inits.append(init)
             if has_default:
-                code.append('boost::python::class_<{0}{2}>("{1}")'.format(class_, self.name, noncopy))
+                code.append('{0}boost::python::class_<{1}{3}>("{2}")'.format(
+                    assignment,
+                    class_,
+                    self.name,
+                    noncopy)
+                )
             else:
                 init = inits[0]
                 inits = inits[1:]
-                code.append('boost::python::class_<{0}{3}>("{1}", {2})'.format(class_, self.name, init, noncopy))
+                code.append('{0}boost::python::class_<{1}{4}>("{2}", {3})'.format(
+                    assignment,
+                    class_,
+                    self.name,
+                    init,
+                    noncopy)
+                )
             for init in inits:
                 defs.append('.def({})'.format(init))
         if self.enable_defvisitor:
@@ -324,10 +365,41 @@ class BoostPythonClass(object):
         ])
 
 
+class BoostPythonEnum(object):
+    def __init__(self, name, scope=None):
+        self.name = name
+        self.scope = scope
+        self.values = []
+
+    def add_value(self, node):
+        self.values.append(node.spelling)
+
+    def to_code_block(self):
+        values = ['.value("{0}", &{0})'.format(x) for x in self.values]
+        block = CodeBlock([
+            'boost::python::enum_<{0}>("{0}")'.format(self.name),
+            CodeBlock(values + [
+                ".export_values()",
+                ";",
+            ]),
+        ])
+        if self.scope:
+            block = CodeBlock([
+                "{",
+                CodeBlock([
+                    "boost::python::scope scope = boost_python_{0};".format(self.scope),
+                ]),
+                block,
+                "}",
+            ])
+        return block
+
+
 class BoostPythonGenerator(Generator):
     def __init__(self, enable_defvisitor=False):
         self.classes = OrderedDict()
         self.functions = OrderedDict()
+        self.enums = OrderedDict()
         self.enable_defvisitor = enable_defvisitor
 
     def generate(self, node):
@@ -337,6 +409,8 @@ class BoostPythonGenerator(Generator):
         for value in self.classes.values():
             block += value.to_code_block()
         for value in self.functions.values():
+            block += value.to_code_block()
+        for value in self.enums.values():
             block += value.to_code_block()
         return "\n".join(block.to_code(indent=1))
 
@@ -409,7 +483,26 @@ class BoostPythonGenerator(Generator):
         self.classes[name].set_noncopyable(disable_copy_constructor and disable_copy_operator)
 
     def visit_CXX_METHOD(self, node):
-        ret = CodeBlock()
         class_name = node.ptr.semantic_parent.spelling
         assert class_name in self.classes
         self.classes[class_name].add_method(node.ptr)
+
+    def visit_ENUM_DECL(self, node, name=None):
+        # unnamed special case
+        if name is None:
+            if not node.ptr.spelling:
+                return
+            name = node.ptr.spelling
+        scope = None
+        if node.ptr.semantic_parent.kind == clang.cindex.CursorKind.CLASS_DECL:
+            scope = node.ptr.semantic_parent.spelling
+            self.classes[scope].set_enable_scope(True)
+        self.enums[name] = BoostPythonEnum(name, scope=scope)
+        for child in node:
+            assert child.ptr.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL
+            self.enums[name].add_value(child.ptr)
+
+    def visit_TYPEDEF_DECL(self, node):
+        for child in node:
+            if child.ptr.kind == clang.cindex.CursorKind.ENUM_DECL:
+                self.visit_ENUM_DECL(child, name=node.ptr.spelling)
