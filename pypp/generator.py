@@ -42,28 +42,14 @@ class BoostPythonFunction(object):
         self.functions = []
         self.decls = CodeBlock([])
         self.overload_decls = []
+        self.value_policies = []
 
     def add_function(self, node):
         assert node.spelling == self.name
         self.functions.append(node)
-        # check overloads
-        suffix = len(self.functions) - 1
-        n = 0
-        args = list(node.get_arguments())
-        for i, arg in enumerate(args, 1):
-            if len(list(arg.get_children())) > 0:
-                break
-            n = i
-        if n == 0 or n == len(args):
-            self.overload_decls.append("")
-        else:
-            self.decls.append("BOOST_PYTHON_FUNCTION_OVERLOADS({0}Overloads{1}, {0}, {2}, {3})".format(
-                self.name,
-                suffix,
-                n,
-                len(args),
-            ))
-            self.overload_decls.append("{0}Overloads{1}".format(self.name, suffix))
+
+        self.register_overloads(node)
+        self.register_return_value_policy(node)
 
     def has_decl_code(self):
         return bool(self.decls)
@@ -73,20 +59,23 @@ class BoostPythonFunction(object):
 
     def to_code_block(self):
         if len(self.functions) == 1:
-            overloads = self.overloads(0)
+            option = self.option(0)
             return CodeBlock([
-                'boost::python::def("{0}", &{0}{1});'.format(self.name, overloads),
+                'boost::python::def("{func}", &{func}{opt});'.format(
+                    func=self.name,
+                    opt=option
+                ),
             ])
         else:
             result = CodeBlock([])
             for i, func in enumerate(self.functions):
-                overloads = self.overloads(i)
+                option = self.option(i)
                 result.append(
-                    'boost::python::def("{0}", static_cast<{1}(*)({2})>(&{0}){3});'.format(
-                        self.name,
-                        self.result_type(func),
-                        ", ".join(self.arg_types(func)),
-                        overloads,
+                    'boost::python::def("{func}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
+                        func=self.name,
+                        rtype=self.result_type(func),
+                        args=", ".join(self.arg_types(func)),
+                        opt=option,
                     )
                 )
             return result
@@ -97,10 +86,65 @@ class BoostPythonFunction(object):
     def arg_types(self, node):
         return [x.type.spelling for x in node.get_arguments()]
 
-    def overloads(self, suffix):
-        if self.overload_decls[suffix]:
-            return ", {}()".format(self.overload_decls[suffix])
+    def boost_python_overloads(self, node):
+        return "BOOST_PYTHON_FUNCTION_OVERLOADS"
+
+    def register_overloads(self, node):
+        suffix, minarg, maxarg = self._overload_info(node)
+
+        if minarg == 0 or minarg == maxarg:
+            # no overload
+            self.overload_decls.append("")
+            return
+
+        self.decls.append("{pp}({func}Overloads{suffix}, {func}, {min}, {max})".format(
+            pp=self.boost_python_overloads(node),
+            func=self.name,
+            suffix=suffix,
+            min=minarg,
+            max=maxarg,
+        ))
+        # TODO: arg names; XXXOverloads(boost::python::args("x", "y", "z"))
+        self.overload_decls.append("{func}Overloads{suffix}()".format(
+            func=self.name,
+            suffix=suffix,
+        ))
+
+    def _overload_info(self, node):
+        suffix = len(self.functions) - 1
+        n = 0
+        args = list(node.get_arguments())
+        for i, arg in enumerate(args, 1):
+            if len(list(arg.get_children())) > 0:
+                break
+            n = i
+        return suffix, n, len(args)
+
+    def option(self, suffix):
+        overload = self.overload_decls[suffix]
+        policy = self.value_policies[suffix]
+        if overload or policy:
+            if overload and policy:
+                return ", {}[{}]".format(overload, policy)
+            return ", {}".format(overload or policy)
         return ""
+
+    def register_return_value_policy(self, node):
+        result_type = self.result_type(node)
+        if result_type.endswith("*") or result_type.endswith("&"):
+            # TODO: other types
+            if result_type.endswith("*"):
+                policy = "boost::python::return_opaque_pointer<>"
+            elif result_type.endswith("&"):
+                # TODO: internal reference case
+                if result_type.startswith("const"):
+                    policy = "boost::python::copy_const_reference<>"
+                else:
+                    policy = "boost::python::copy_non_const_reference<>"
+            self.value_policies.append("boost::python::return_value_policy<{}>()".format(policy))
+            return
+        else:
+            self.value_policies.append("")
 
 
 class BoostPythonMethod(BoostPythonFunction):
@@ -108,64 +152,71 @@ class BoostPythonMethod(BoostPythonFunction):
         class_name = self.functions[0].semantic_parent.spelling
         if len(self.functions) == 1:
             func = self.functions[0]
-            overloads = self.overloads(func)
-            decl = "&{0}::{1}".format(class_name, self.name)
+            option = self.option(0)
+            decl = "&{cls}::{func}".format(cls=class_name, func=self.name)
             if func.is_pure_virtual_method():
                 decl = "boost::python::pure_virtual({})".format(decl)
             return CodeBlock([
-                '.def("{0}", {1}{2})'.format(self.name, decl, overloads),
+                '.def("{func}", {decl}{opt})'.format(
+                    func=self.name,
+                    decl=decl,
+                    opt=option
+                ),
             ])
         else:
             result = CodeBlock([])
-            for i, func in enumerate(self.functions, 1):
-                overloads = self.overloads(func, i)
-                cast_scope = "{}::".format(class_name)
-                if func.is_static_method():
-                    cast_scope = ""
-                decl = "static_cast<{2}({5}*)({3}){4}>(&{0}::{1})".format(
-                    class_name,
-                    self.name,
-                    self.result_type(func),
-                    ", ".join(self.arg_types(func)),
-                    " const" if func.is_const_method() else "",
-                    cast_scope,
+            for i, func in enumerate(self.functions):
+                option = self.option(i)
+                cast_scope = ""
+                if not func.is_static_method():
+                    cast_scope = "{}::".format(class_name)
+                decl = "static_cast<{rtype}({scope}*)({args}){const}>(&{cls}::{func})".format(
+                    cls=class_name,
+                    func=self.name,
+                    rtype=self.result_type(func),
+                    args=", ".join(self.arg_types(func)),
+                    const=" const" if func.is_const_method() else "",
+                    scope=cast_scope,
                 )
                 if func.is_pure_virtual_method():
                     decl = "boost::python::pure_virtual({})".format(decl)
                 result.append(
-                    '.def("{0}", {1}{2})'.format(
-                        self.name,
-                        decl,
-                        overloads,
+                    '.def("{func}", {decl}{opt})'.format(
+                        func=self.name,
+                        decl=decl,
+                        opt=option,
                     )
                 )
             return result
 
-    def overloads(self, node, suffix=None):
+    def boost_python_overloads(self, node):
+        if node.is_static_method():
+            return "BOOST_PYTHON_FUNCTION_OVERLOADS"
+        return "BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS"
+
+    def register_overloads(self, node):
         class_name = node.semantic_parent.spelling
-        if suffix is None:
-            suffix = ""
-        n = 0
-        args = list(node.get_arguments())
-        for i, arg in enumerate(args, 1):
-            if len(list(arg.get_children())) > 0:
-                break
-            n = i
-        if n == 0 or n == len(args):
-            return ""
-        else:
-            base = "MEMBER_"
-            if node.is_static_method():
-                base = ""
-            self.decls.append("BOOST_PYTHON_{0}FUNCTION_OVERLOADS({1}{2}Overloads{3}, {1}::{2}, {4}, {5})".format(
-                base,
-                class_name,
-                self.name,
-                suffix,
-                n,
-                len(args),
-            ))
-            return ", {}{}Overloads{}()".format(class_name, self.name, suffix)
+        suffix, minarg, maxarg = self._overload_info(node)
+
+        if minarg == 0 or minarg == maxarg:
+            # no overload
+            self.overload_decls.append("")
+            return
+
+        self.decls.append("{base}({cls}{func}Overloads{suffix}, {cls}::{func}, {min}, {max})".format(
+            base=self.boost_python_overloads(node),
+            cls=class_name,
+            func=self.name,
+            suffix=suffix,
+            min=minarg,
+            max=maxarg,
+        ))
+        # TODO: arg names; XXXOverloads(boost::python::args("x", "y", "z"))
+        self.overload_decls.append("{cls}{func}Overloads{suffix}".format(
+            cls=class_name,
+            func=self.name,
+            suffix=suffix,
+        ))
 
 
 class BoostPythonClass(object):
