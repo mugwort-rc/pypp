@@ -432,6 +432,8 @@ class BoostPythonClass(object):
 
     def class_wrapper(self):
         body = CodeBlock()
+        if self.constructors:
+            body .append("using {0}::{0};".format(self.name))
         for method in self.virtual_methods:
             if method.kind == clang.cindex.CursorKind.DESTRUCTOR:
                 # special case for pure virtual destructor
