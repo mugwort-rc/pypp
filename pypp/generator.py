@@ -9,6 +9,58 @@ from .parser import AstNode
 from .utils import CodeBlock
 
 
+CPP_OPERATORS = [
+    "operator()",
+    #"operator \w+()",  # TODO: cast operator
+    "operator->",
+    "operator[]",
+    "operator++",  # TODO: ++(int)
+    "operator--",  # TODO: --(int)
+    "operator new",
+    "operator delete",
+    "operator new[]",
+    "operator delete[]",
+    "operator~",
+    "operator!",
+    "operator+",  # TODO: +(const T &rhs)
+    "operator-",  # TODO: -(const T &rhs)
+    "operator&",  # TODO: &(const T &rhs)
+    "operator*",  # TODO: *(const T &rhs)
+    "operator->*",
+    "operator/",
+    "operator<<",
+    "operator>>",
+    "operator<",
+    "operator<=",
+    "operator>",
+    "operator>=",
+    "operator==",
+    "operator!=",
+    "operator^",
+    "operator|",
+    "operator&&",
+    "operator||",
+    "operator=",
+    "operator*=",
+    "operator/=",
+    "operator%=",
+    "operator+=",
+    "operator-=",
+    "operator<<=",
+    "operator>>=",
+    "operator&=",
+    "operator^=",
+    "operator|=",
+    "operator,",
+]
+
+NOT_DEFAULT_ARG_KINDS = [
+    clang.cindex.CursorKind.TYPE_REF,
+    clang.cindex.CursorKind.TEMPLATE_REF,
+    clang.cindex.CursorKind.NAMESPACE_REF,
+]
+
+
 class NodeVisitor(object):
     def visit(self, node):
         """Visit a node."""
@@ -60,7 +112,7 @@ class BoostPythonFunction(object):
     def to_code_block(self):
         if len(self.functions) == 1:
             option = self.option(0)
-            return CodeBlock([
+            result = CodeBlock([
                 'boost::python::def("{func}", &{func}{opt});'.format(
                     func=self.name,
                     opt=option
@@ -78,13 +130,22 @@ class BoostPythonFunction(object):
                         opt=option,
                     )
                 )
-            return result
+            result
+        if self.name in CPP_OPERATORS:
+            return CodeBlock.wrap_inline_comment(result)
+        return result
 
     def result_type(self, node):
         return node.result_type.spelling
 
-    def arg_types(self, node):
+    @classmethod
+    def arg_types(cls, node):
         return [x.type.spelling for x in node.get_arguments()]
+
+    @classmethod
+    def has_default_value(cls, arg):
+        childs = [x for x in arg.get_children() if x.kind not in NOT_DEFAULT_ARG_KINDS]
+        return len(childs) > 0
 
     def boost_python_overloads(self, node):
         return "BOOST_PYTHON_FUNCTION_OVERLOADS"
@@ -115,7 +176,7 @@ class BoostPythonFunction(object):
         n = 0
         args = list(node.get_arguments())
         for i, arg in enumerate(args, 1):
-            if len(list(arg.get_children())) > 0:
+            if self.has_default_value(arg):
                 break
             n = i
         return suffix, n, len(args)
@@ -134,15 +195,14 @@ class BoostPythonFunction(object):
         if result_type.endswith("*") or result_type.endswith("&"):
             # TODO: other types
             if result_type.endswith("*"):
-                policy = "boost::python::return_opaque_pointer<>"
+                policy = "boost::python::return_opaque_pointer"
             elif result_type.endswith("&"):
                 # TODO: internal reference case
                 if result_type.startswith("const"):
-                    policy = "boost::python::copy_const_reference<>"
+                    policy = "boost::python::copy_const_reference"
                 else:
-                    policy = "boost::python::copy_non_const_reference<>"
+                    policy = "boost::python::copy_non_const_reference"
             self.value_policies.append("boost::python::return_value_policy<{}>()".format(policy))
-            return
         else:
             self.value_policies.append("")
 
@@ -156,7 +216,7 @@ class BoostPythonMethod(BoostPythonFunction):
             decl = "&{cls}::{func}".format(cls=class_name, func=self.name)
             if func.is_pure_virtual_method():
                 decl = "boost::python::pure_virtual({})".format(decl)
-            return CodeBlock([
+            result = CodeBlock([
                 '.def("{func}", {decl}{opt})'.format(
                     func=self.name,
                     decl=decl,
@@ -187,7 +247,9 @@ class BoostPythonMethod(BoostPythonFunction):
                         opt=option,
                     )
                 )
-            return result
+        if self.name in CPP_OPERATORS:
+            return CodeBlock.wrap_inline_comment(result)
+        return result
 
     def boost_python_overloads(self, node):
         if node.is_static_method():
@@ -212,7 +274,7 @@ class BoostPythonMethod(BoostPythonFunction):
             max=maxarg,
         ))
         # TODO: arg names; XXXOverloads(boost::python::args("x", "y", "z"))
-        self.overload_decls.append("{cls}{func}Overloads{suffix}".format(
+        self.overload_decls.append("{cls}{func}Overloads{suffix}()".format(
             cls=class_name,
             func=self.name,
             suffix=suffix,
@@ -231,9 +293,20 @@ class BoostPythonClass(object):
         self.enable_scope = enable_scope
 
     def add_method(self, node):
+        # skip implement part
+        if node.lexical_parent.kind != clang.cindex.CursorKind.CLASS_DECL:
+            return
         assert node.semantic_parent.spelling == self.name
         if node.kind == clang.cindex.CursorKind.CONSTRUCTOR:
+            # skip move constructor
+            if BoostPythonFunction.arg_types(node) == ["{} &&".format(self.name)]:
+                return
             self.constructors.append(node)
+            return
+        elif node.kind == clang.cindex.CursorKind.DESTRUCTOR:
+            assert node.is_pure_virtual_method()
+            self.virtual_methods.append(node)
+            self.set_noncopyable(True)
             return
         # init if not added
         if node.spelling not in self.methods:
@@ -246,16 +319,13 @@ class BoostPythonClass(object):
             self.virtual_methods.append(node)
 
     def set_noncopyable(self, b):
-        self.noncopyable = b
+        self.noncopyable = self.noncopyable or b
 
     def set_enable_scope(self, enable):
         self.enable_scope = enable
 
     def has_virtual_method(self):
-        for method in self.virtual_methods:
-            if method.kind == clang.cindex.CursorKind.CXX_METHOD:
-                return True
-        return False
+        return bool(self.virtual_methods)
 
     def has_decl_code(self):
         if self.virtual_methods:
@@ -352,7 +422,7 @@ class BoostPythonClass(object):
         tmp = []
         optional = []
         for arg in args:
-            if len(list(arg.get_children())) == 0:
+            if not BoostPythonFunction.has_default_value(arg):
                 tmp.append(arg.type.spelling)
             else:
                 optional.append(arg.type.spelling)
@@ -525,6 +595,7 @@ class BoostPythonGenerator(Generator):
         name = node.ptr.spelling
         assert name not in self.classes
         self.classes[name] = BoostPythonClass(name, enable_defvisitor=self.enable_defvisitor)
+        pure_virtual_destructor = False
         disable_copy_constructor = False
         disable_copy_operator = False
         i = -1
@@ -533,7 +604,9 @@ class BoostPythonGenerator(Generator):
                 i = -1
                 continue
             if child.ptr.kind == clang.cindex.CursorKind.DESTRUCTOR:
-                continue
+                if not child.ptr.is_pure_virtual_method():
+                    continue
+                pure_virtual_destructor = True
             if child.ptr.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
                 # check lvalue constructor
                 if child.ptr.kind == clang.cindex.CursorKind.CONSTRUCTOR:
@@ -551,12 +624,23 @@ class BoostPythonGenerator(Generator):
                 continue
             self.visit(child)
 
-        self.classes[name].set_noncopyable(disable_copy_constructor and disable_copy_operator)
+        self.classes[name].set_noncopyable(
+            pure_virtual_destructor
+            or
+            (disable_copy_constructor and disable_copy_operator)
+        )
         # remove forward declaration
         if i < 0:
             del self.classes[name]
 
     def visit_CONSTRUCTOR(self, node):
+        class_name = node.ptr.semantic_parent.spelling
+        assert class_name in self.classes
+        self.classes[class_name].add_method(node.ptr)
+
+    def visit_DESTRUCTOR(self, node):
+        if not node.ptr.is_pure_virtual_method():
+            return
         class_name = node.ptr.semantic_parent.spelling
         assert class_name in self.classes
         self.classes[class_name].add_method(node.ptr)
