@@ -60,6 +60,44 @@ NOT_DEFAULT_ARG_KINDS = [
     clang.cindex.CursorKind.NAMESPACE_REF,
 ]
 
+PYTHON_RESERVED = [
+    "and",
+    "del",
+    "from",
+    "not",
+    "while",
+    "as",
+    "elif",
+    "global",
+    "or",
+    "with",
+    "assert",
+    "else",
+    "if",
+    "pass",
+    "yield",
+    "break",
+    "except",
+    "import",
+    "print",
+    "class",
+    "exec",
+    "in",
+    "raise",
+    "continue",
+    "finally",
+    "is",
+    "return",
+    "def",
+    "for",
+    "lambda",
+    "try",
+]
+def check_reserved(word):
+    if word in PYTHON_RESERVED:
+        return "{}_".format(word)
+    return word
+
 
 class NodeVisitor(object):
     def visit(self, node):
@@ -113,7 +151,8 @@ class BoostPythonFunction(object):
         if len(self.functions) == 1:
             option = self.option(0)
             result = CodeBlock([
-                'boost::python::def("{func}", &{func}{opt});'.format(
+                'boost::python::def("{pyfunc}", &{func}{opt});'.format(
+                    pyfunc=check_reserved(self.name),
                     func=self.name,
                     opt=option
                 ),
@@ -123,7 +162,8 @@ class BoostPythonFunction(object):
             for i, func in enumerate(self.functions):
                 option = self.option(i)
                 result.append(
-                    'boost::python::def("{func}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
+                    'boost::python::def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
+                        pyfunc=check_reserved(self.name),
                         func=self.name,
                         rtype=self.result_type(func),
                         args=", ".join(self.arg_types(func)),
@@ -218,7 +258,7 @@ class BoostPythonMethod(BoostPythonFunction):
                 decl = "boost::python::pure_virtual({})".format(decl)
             result = CodeBlock([
                 '.def("{func}", {decl}{opt})'.format(
-                    func=self.name,
+                    func=check_reserved(self.name),
                     decl=decl,
                     opt=option
                 ),
@@ -232,7 +272,7 @@ class BoostPythonMethod(BoostPythonFunction):
                     cast_scope = "{}::".format(class_name)
                 decl = "static_cast<{rtype}({scope}*)({args}){const}>(&{cls}::{func})".format(
                     cls=class_name,
-                    func=self.name,
+                    func=check_reserved(self.name),
                     rtype=self.result_type(func),
                     args=", ".join(self.arg_types(func)),
                     const=" const" if func.is_const_method() else "",
@@ -242,7 +282,7 @@ class BoostPythonMethod(BoostPythonFunction):
                     decl = "boost::python::pure_virtual({})".format(decl)
                 result.append(
                     '.def("{func}", {decl}{opt})'.format(
-                        func=self.name,
+                        func=check_reserved(self.name),
                         decl=decl,
                         opt=option,
                     )
@@ -358,23 +398,24 @@ class BoostPythonClass(object):
         constructor_count = len(self.constructors)
         if constructor_count == 0:
             code.append(
-            '{0}boost::python::class_<{1}{3}>("{2}", boost::python::no_init)'.format(
-                assignment,
-                class_,
-                self.name,
-                noncopy
+            '{assign}boost::python::class_<{cls}{opt}>("{pycls}", boost::python::no_init)'.format(
+                assign=assignment,
+                cls=class_,
+                pycls=check_reserved(self.name),
+                opt=noncopy,
                 )
             )
         elif constructor_count == 1:
             init = self.init(self.constructors[0])
             if init:
                 init = ", {}".format(init)
-            code.append('{0}boost::python::class_<{1}{4}>("{2}"{3})'.format(
-                assignment,
-                class_,
-                self.name,
-                init,
-                noncopy)
+            code.append('{assign}boost::python::class_<{cls}{opt}>("{pycls}"{init})'.format(
+                assign=assignment,
+                cls=class_,
+                pycls=check_reserved(self.name),
+                init=init,
+                opt=noncopy,
+                )
             )
         else:
             has_default = False
@@ -386,21 +427,23 @@ class BoostPythonClass(object):
                     continue
                 inits.append(init)
             if has_default:
-                code.append('{0}boost::python::class_<{1}{3}>("{2}")'.format(
-                    assignment,
-                    class_,
-                    self.name,
-                    noncopy)
+                code.append('{assign}boost::python::class_<{cls}{opt}>("{pycls}")'.format(
+                    assign=assignment,
+                    cls=class_,
+                    pycls=check_reserved(self.name),
+                    opt=noncopy,
+                    )
                 )
             else:
                 init = inits[0]
                 inits = inits[1:]
-                code.append('{0}boost::python::class_<{1}{4}>("{2}", {3})'.format(
-                    assignment,
-                    class_,
-                    self.name,
-                    init,
-                    noncopy)
+                code.append('{assign}boost::python::class_<{cls}{opt}>("{pycls}", {init})'.format(
+                    assign=assignment,
+                    cls=class_,
+                    pycls=check_reserved(self.name),
+                    init=init,
+                    opt=noncopy,
+                    )
                 )
             for init in inits:
                 defs.append('.def({})'.format(init))
@@ -410,7 +453,7 @@ class BoostPythonClass(object):
             defs += item.to_code_block()
         if self.static_methods:
             for name in self.static_methods:
-                defs.append('.staticmethod("{}")'.format(name))
+                defs.append('.staticmethod("{}")'.format(check_reserved(name)))
         defs.append(";")
         code.append(defs)
         return code
@@ -471,14 +514,14 @@ class BoostPythonClass(object):
                 ret = "return "
             if method.is_pure_virtual_method():
                 tmp.append(CodeBlock([
-                    '{}this->get_override("{}")({});'.format(ret, name, ", ".join(args))
+                    '{}this->get_override("{}")({});'.format(ret, check_reserved(name), ", ".join(args))
                 ]))
             else:
                 auto = name
                 while auto in args:
                     auto += "_"
                 tmp.append(CodeBlock([
-                    'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, name),
+                    'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, check_reserved(name)),
                     CodeBlock([
                         "{}{}({});".format(ret, auto, ", ".join(args)),
                     ]),
@@ -514,9 +557,9 @@ class BoostPythonEnum(object):
         self.values.append(node.spelling)
 
     def to_code_block(self):
-        values = ['.value("{0}", &{0})'.format(x) for x in self.values]
+        values = ['.value("{}", &{})'.format(check_reserved(x), x) for x in self.values]
         block = CodeBlock([
-            'boost::python::enum_<{0}>("{0}")'.format(self.name),
+            'boost::python::enum_<{0}>("{0}")'.format(check_reserved(self.name)),
             CodeBlock(values + [
                 ".export_values()",
                 ";",
@@ -537,6 +580,7 @@ class BoostPythonEnum(object):
 class BoostPythonGenerator(Generator):
     def __init__(self, enable_defvisitor=False):
         self.classes = OrderedDict()
+        self.class_forward_declarations = []
         self.functions = OrderedDict()
         self.enums = OrderedDict()
         self.enable_defvisitor = enable_defvisitor
@@ -634,6 +678,7 @@ class BoostPythonGenerator(Generator):
         # remove forward declaration
         if i < 0:
             del self.classes[name]
+            self.class_forward_declarations.append(name)
 
     def visit_CONSTRUCTOR(self, node):
         class_name = node.ptr.semantic_parent.spelling

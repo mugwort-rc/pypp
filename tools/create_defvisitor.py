@@ -14,6 +14,7 @@ def main():
     parser.add_argument("class_name")
     parser.add_argument("--template", default="defvisitor.hpp")
     parser.add_argument("--append-cwd", default=False, action="store_true")
+    parser.add_argument("--with-example", default=False, action="store_true")
 
     args = parser.parse_args()
 
@@ -26,6 +27,7 @@ def main():
     template = env.get_template(args.template)
     print(template.render({
         "class_name": args.class_name,
+        "with_example": args.with_example,
     }))
 
     return 0

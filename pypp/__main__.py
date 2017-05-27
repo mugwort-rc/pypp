@@ -37,6 +37,7 @@ def main(argv):
     print("")
     print("#include <boost/python.hpp>")
     print('#include "{}"'.format(args.input))
+    print("\n".join(map(lambda x: "// TODO: forward declaration class {}".format(x), generator.class_forward_declarations)))
     print("")
     if args.install_defvisitor:
         print("")

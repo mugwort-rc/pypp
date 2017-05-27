@@ -8,14 +8,14 @@ class {{ class_name }}DefVisitor :
 public:
     template <class T>
     void visit(T &class_) const {
-        class_
-            .def("example", &example)
+        class_{% if with_example %}
+            .def("example", &example){% endif %}
             ;
     }
-
+{% if with_example %}
     static void example({{ class_name }} &self) {
         // something to do
-    }
+    }{% endif %}
 
 };
 
