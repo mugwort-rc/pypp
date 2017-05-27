@@ -596,9 +596,15 @@ class BoostPythonEnum(object):
         self.values.append(node.spelling)
 
     def to_code_block(self):
-        values = ['.value("{}", &{})'.format(check_reserved(x), x) for x in self.values]
+        scope = ""
+        if self.scope:
+            scope = self.scope + "::"
+        values = ['.value("{}", {})'.format(check_reserved(x), scope+x) for x in self.values]
         block = CodeBlock([
-            'boost::python::enum_<{0}>("{0}")'.format(check_reserved(self.name)),
+            'boost::python::enum_<{enum}>("{name}")'.format(
+                enum=scope + self.name,
+                name=check_reserved(self.name),
+            ),
             CodeBlock(values + [
                 ".export_values()",
                 ";",
