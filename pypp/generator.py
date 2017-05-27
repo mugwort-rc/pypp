@@ -188,7 +188,7 @@ class BoostPythonFunction(object):
 
     @classmethod
     def arg_types(cls, node):
-        return [x.type.spelling for x in node.get_arguments()]
+        return [x.type.get_canonical().spelling for x in node.get_arguments()]
 
     @classmethod
     def has_function_pointer(cls, node):
