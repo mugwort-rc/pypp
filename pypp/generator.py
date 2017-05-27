@@ -192,6 +192,8 @@ class BoostPythonFunction(object):
 
     @classmethod
     def has_function_pointer(cls, node):
+        if cls.is_function_pointer(node.result_type):
+            return True
         return any([cls.is_function_pointer(x.type) for x in node.get_arguments()])
 
     @classmethod
