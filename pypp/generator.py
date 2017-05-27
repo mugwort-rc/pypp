@@ -271,8 +271,9 @@ class BoostPythonFunction(object):
 
 
 class BoostPythonMethod(BoostPythonFunction):
-    def to_code_block(self):
-        class_name = self.functions[0].semantic_parent.spelling
+    def to_code_block(self, class_name=None):
+        if class_name is None:
+            class_name = self.functions[0].semantic_parent.spelling
         if len(self.functions) == 1:
             func = self.functions[0]
             option = self.option(0)
@@ -281,7 +282,7 @@ class BoostPythonMethod(BoostPythonFunction):
                 decl = "boost::python::pure_virtual({})".format(decl)
             result = CodeBlock([
                 '.def("{func}", {decl}{opt})'.format(
-                    func=check_reserved(self.name),
+                    func=self.pyname(),
                     decl=decl,
                     opt=option
                 ),
@@ -307,7 +308,7 @@ class BoostPythonMethod(BoostPythonFunction):
                 if func.is_pure_virtual_method():
                     decl = "boost::python::pure_virtual({})".format(decl)
                 def_ = '.def("{func}", {decl}{opt})'.format(
-                    func=check_reserved(self.name),
+                    func=self.pyname(),
                     decl=decl,
                     opt=option,
                 )
@@ -348,12 +349,26 @@ class BoostPythonMethod(BoostPythonFunction):
             suffix=suffix,
         ))
 
+    def pyname(self):
+        return check_reserved(self.name)
+
+    def is_escape_all(self):
+        return all(map(self.has_function_pointer, self.functions))
+
+
+class BoostPythonProtectedMethod(BoostPythonMethod):
+    def pyname(self):
+        if not self.name.startswith("_"):
+            return check_reserved("_" + self.name)
+        return super(BoostPythonProtectedMethod, self).pyname()
+
 
 class BoostPythonClass(object):
     def __init__(self, name, enable_defvisitor=False, enable_scope=False):
         self.name = name
         self.bases = []
         self.methods = OrderedDict()
+        self.protected_methods = OrderedDict()
         self.static_methods = []
         self.virtual_methods = []
         self.constructors = []
@@ -381,14 +396,20 @@ class BoostPythonClass(object):
             self.virtual_methods.append(node)
             self.set_noncopyable(True)
             return
-        # init if not added
-        if node.spelling not in self.methods:
-            self.methods[node.spelling] = BoostPythonMethod(node.spelling)
-        self.methods[node.spelling].add_function(node)
-        if node.is_static_method():
-            if node.spelling not in self.static_methods:
-                self.static_methods.append(node.spelling)
-        elif node.is_virtual_method():
+        if node.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
+            # init if it is not added
+            if node.spelling not in self.protected_methods:
+                self.protected_methods[node.spelling] = BoostPythonProtectedMethod(node.spelling)
+            self.protected_methods[node.spelling].add_function(node)
+        elif node.access_specifier == clang.cindex.AccessSpecifier.PUBLIC:
+            # init if it is not added
+            if node.spelling not in self.methods:
+                self.methods[node.spelling] = BoostPythonMethod(node.spelling)
+            self.methods[node.spelling].add_function(node)
+            if node.is_static_method():
+                if node.spelling not in self.static_methods:
+                    self.static_methods.append(node.spelling)
+        if node.is_virtual_method():
             self.virtual_methods.append(node)
 
     def set_noncopyable(self, b):
@@ -402,6 +423,8 @@ class BoostPythonClass(object):
 
     def has_decl_code(self):
         if self.virtual_methods:
+            return True
+        if self.protected_methods:
             return True
         for item in self.methods.values():
             if item.decls:
@@ -434,7 +457,7 @@ class BoostPythonClass(object):
                 ", ".join([x.type.spelling for x in self.bases])
             )
         opt = noncopy + bases
-        constructor_count = len(self.constructors)
+        constructor_count = len(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
         if constructor_count == 0:
             code.append(
             '{assign}boost::python::class_<{cls}{opt}>("{pycls}", boost::python::no_init)'.format(
@@ -460,6 +483,8 @@ class BoostPythonClass(object):
             has_default = False
             inits = []
             for node in self.constructors:
+                if node.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
+                    continue
                 init = self.init(node)
                 if init == "":
                     has_default = True
@@ -491,8 +516,25 @@ class BoostPythonClass(object):
         for item in self.methods.values():
             defs += item.to_code_block()
         if self.static_methods:
+            added = []
             for name in self.static_methods:
-                defs.append('.staticmethod("{}")'.format(check_reserved(name)))
+                if name in added:
+                    continue
+                static = '.staticmethod("{}")'.format(check_reserved(name))
+                # check escape
+                escape = True
+                if name in self.methods:
+                    if not self.methods[name].is_escape_all():
+                        escape = False
+                if escape and name in self.protected_methods:
+                    if not self.protected_methods[name].is_escape_all():
+                        escape = False
+                if escape:
+                    static = "//{}".format(static)
+                defs.append(static)
+                added.append(name)
+        for item in self.protected_methods.values():
+            defs += item.to_code_block(class_name=class_)
         defs.append(";")
         code.append(defs)
         return code
@@ -528,6 +570,10 @@ class BoostPythonClass(object):
             # CXX_METHOD
             result_type = method.result_type.spelling
             name = method.spelling
+            pyname = check_reserved(name)
+            if method.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
+                if not name.startswith("_"):
+                    pyname = check_reserved("_" + name)
             const_type = ""
             if method.is_const_method():
                 const_type = " const"
@@ -553,14 +599,14 @@ class BoostPythonClass(object):
                 ret = "return "
             if method.is_pure_virtual_method():
                 tmp.append(CodeBlock([
-                    '{}this->get_override("{}")({});'.format(ret, check_reserved(name), ", ".join(args))
+                    '{}this->get_override("{}")({});'.format(ret, pyname, ", ".join(args))
                 ]))
             else:
                 auto = name
                 while auto in args:
                     auto += "_"
                 tmp.append(CodeBlock([
-                    'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, check_reserved(name)),
+                    'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, pyname),
                     CodeBlock([
                         "{}{}({});".format(ret, auto, ", ".join(args)),
                     ]),
@@ -572,6 +618,9 @@ class BoostPythonClass(object):
                 ]))
             tmp.append("}")
             body += tmp
+
+        for name in self.protected_methods:
+            body.append("using {}::{};".format(self.name, name))
 
         return CodeBlock([
             "class {} :".format("{}Wrapper".format(self.name)),
@@ -715,7 +764,7 @@ class BoostPythonGenerator(Generator):
                     args = list(child.ptr.get_arguments())
                     if len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE:
                         disable_copy_operator = True
-            if child.ptr.access_specifier != clang.cindex.AccessSpecifier.PUBLIC:
+            if child.ptr.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
                 continue
             self.visit(child)
 
