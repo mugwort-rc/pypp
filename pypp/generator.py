@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 from ast import iter_fields
+import re
 from collections import OrderedDict
 
 import clang.cindex
@@ -8,6 +9,8 @@ import clang.cindex
 from .parser import AstNode
 from .utils import CodeBlock
 
+
+FUNCTION_POINTER_RE = re.compile(r"\w+\s*\(\*\)\([^\)]*\)")
 
 CPP_OPERATORS = [
     "operator()",
@@ -157,19 +160,24 @@ class BoostPythonFunction(object):
                     opt=option
                 ),
             ])
+            if self.has_function_pointer(self.functions[0]):
+                # TODO: wrap callable object
+                result = CodeBlock.wrap_inline_comment(result)
         else:
             result = CodeBlock([])
             for i, func in enumerate(self.functions):
                 option = self.option(i)
-                result.append(
-                    'boost::python::def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
-                        pyfunc=check_reserved(self.name),
-                        func=self.name,
-                        rtype=self.result_type(func),
-                        args=", ".join(self.arg_types(func)),
-                        opt=option,
-                    )
+                def_ = 'boost::python::def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
+                    pyfunc=check_reserved(self.name),
+                    func=self.name,
+                    rtype=self.result_type(func),
+                    args=", ".join(self.arg_types(func)),
+                    opt=option,
                 )
+                if self.has_function_pointer(func):
+                    # TODO: wrap callable object
+                    def_ = "//{}".format(def_)
+                result.append(def_)
             result
         if self.name in CPP_OPERATORS:
             return CodeBlock.wrap_inline_comment(result)
@@ -181,6 +189,19 @@ class BoostPythonFunction(object):
     @classmethod
     def arg_types(cls, node):
         return [x.type.spelling for x in node.get_arguments()]
+
+    @classmethod
+    def has_function_pointer(cls, node):
+        return any([cls.is_function_pointer(x.type) for x in node.get_arguments()])
+
+    @classmethod
+    def is_function_pointer(cls, type):
+        assert isinstance(type, clang.cindex.Type)
+        ctype = type.get_canonical()
+        if ctype.kind == clang.cindex.TypeKind.POINTER:
+            if FUNCTION_POINTER_RE.match(ctype.spelling):
+                return True
+        return False
 
     @classmethod
     def has_default_value(cls, arg):
@@ -263,6 +284,9 @@ class BoostPythonMethod(BoostPythonFunction):
                     opt=option
                 ),
             ])
+            if self.has_function_pointer(func):
+                # TODO: wrap callable object
+                result = CodeBlock.wrap_inline_comment(result)
         else:
             result = CodeBlock([])
             for i, func in enumerate(self.functions):
@@ -280,13 +304,15 @@ class BoostPythonMethod(BoostPythonFunction):
                 )
                 if func.is_pure_virtual_method():
                     decl = "boost::python::pure_virtual({})".format(decl)
-                result.append(
-                    '.def("{func}", {decl}{opt})'.format(
-                        func=check_reserved(self.name),
-                        decl=decl,
-                        opt=option,
-                    )
+                def_ = '.def("{func}", {decl}{opt})'.format(
+                    func=check_reserved(self.name),
+                    decl=decl,
+                    opt=option,
                 )
+                if self.has_function_pointer(func):
+                    # TODO: wrap callable object
+                    def_ = "//{}".format(def_)
+                result.append(def_)
         if self.name in CPP_OPERATORS:
             return CodeBlock.wrap_inline_comment(result)
         return result
