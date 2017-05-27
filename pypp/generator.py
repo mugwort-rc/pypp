@@ -350,6 +350,7 @@ class BoostPythonMethod(BoostPythonFunction):
 class BoostPythonClass(object):
     def __init__(self, name, enable_defvisitor=False, enable_scope=False):
         self.name = name
+        self.bases = []
         self.methods = OrderedDict()
         self.static_methods = []
         self.virtual_methods = []
@@ -357,6 +358,10 @@ class BoostPythonClass(object):
         self.noncopyable = False
         self.enable_defvisitor = enable_defvisitor
         self.enable_scope = enable_scope
+
+    def add_bases(self, node):
+        assert node.kind == clang.cindex.CursorKind.CXX_BASE_SPECIFIER
+        self.bases.append(node)
 
     def add_method(self, node):
         # skip implement part
@@ -421,6 +426,12 @@ class BoostPythonClass(object):
         noncopy = ""
         if self.noncopyable:
             noncopy = ", boost::noncopyable"
+        bases = ""
+        if self.bases:
+            bases = ", boost::python::bases<{}>".format(
+                ", ".join([x.type.spelling for x in self.bases])
+            )
+        opt = noncopy + bases
         constructor_count = len(self.constructors)
         if constructor_count == 0:
             code.append(
@@ -428,7 +439,7 @@ class BoostPythonClass(object):
                 assign=assignment,
                 cls=class_,
                 pycls=check_reserved(self.name),
-                opt=noncopy,
+                opt=opt,
                 )
             )
         elif constructor_count == 1:
@@ -440,7 +451,7 @@ class BoostPythonClass(object):
                 cls=class_,
                 pycls=check_reserved(self.name),
                 init=init,
-                opt=noncopy,
+                opt=opt,
                 )
             )
         else:
@@ -457,7 +468,7 @@ class BoostPythonClass(object):
                     assign=assignment,
                     cls=class_,
                     pycls=check_reserved(self.name),
-                    opt=noncopy,
+                    opt=opt,
                     )
                 )
             else:
@@ -468,7 +479,7 @@ class BoostPythonClass(object):
                     cls=class_,
                     pycls=check_reserved(self.name),
                     init=init,
-                    opt=noncopy,
+                    opt=opt,
                     )
                 )
             for init in inits:
@@ -675,7 +686,13 @@ class BoostPythonGenerator(Generator):
             if child.ptr.access_specifier == clang.cindex.AccessSpecifier.INVALID:
                 i = -1
                 continue
-            if child.ptr.kind == clang.cindex.CursorKind.DESTRUCTOR:
+
+            if child.ptr.kind == clang.cindex.CursorKind.CXX_ACCESS_SPEC_DECL:
+                continue
+            elif child.ptr.kind == clang.cindex.CursorKind.CXX_BASE_SPECIFIER:
+                self.classes[name].add_bases(child.ptr)
+                continue
+            elif child.ptr.kind == clang.cindex.CursorKind.DESTRUCTOR:
                 if not child.ptr.is_pure_virtual_method():
                     continue
                 pure_virtual_destructor = True
@@ -691,8 +708,6 @@ class BoostPythonGenerator(Generator):
                     if len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE:
                         disable_copy_operator = True
             if child.ptr.access_specifier != clang.cindex.AccessSpecifier.PUBLIC:
-                continue
-            elif child.ptr.kind == clang.cindex.CursorKind.CXX_ACCESS_SPEC_DECL:
                 continue
             self.visit(child)
 
