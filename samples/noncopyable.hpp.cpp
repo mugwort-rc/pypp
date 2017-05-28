@@ -4,7 +4,8 @@
 #include <boost/python.hpp>
 #include "./samples/noncopyable.hpp"
 
+
 void init_samples_noncopyable_hpp() {
-    boost::python::class_<Noncopyable, boost::noncopyable>("Noncopyable", boost::python::no_init)
+    boost::python::class_<Noncopyable, std::shared_ptr<Noncopyable>, boost::noncopyable>("Noncopyable", boost::python::no_init)
         ;
 }

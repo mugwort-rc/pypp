@@ -448,15 +448,17 @@ class BoostPythonClass(object):
         class_ = self.name
         if self.has_virtual_method():
             class_ = "{}Wrapper".format(self.name)
-        noncopy = ""
-        if self.noncopyable:
-            noncopy = ", boost::noncopyable"
         bases = ""
         if self.bases:
             bases = ", boost::python::bases<{}>".format(
                 ", ".join([x.type.spelling for x in self.bases])
             )
-        opt = noncopy + bases
+        held = ", std::shared_ptr<{}>".format(self.name)
+        # TODO: held class option
+        noncopy = ""
+        if self.noncopyable:
+            noncopy = ", boost::noncopyable"
+        opt = bases + held + noncopy
         constructor_count = len(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
         if constructor_count == 0:
             code.append(

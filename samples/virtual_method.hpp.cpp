@@ -5,6 +5,7 @@
 #include "./samples/virtual_method.hpp"
 
 
+
 class VirtualMethodWrapper :
     public VirtualMethod,
     public boost::python::wrapper<VirtualMethod>
@@ -24,7 +25,7 @@ public:
 
 
 void init_samples_virtual_method_hpp() {
-    boost::python::class_<VirtualMethodWrapper>("VirtualMethod", boost::python::no_init)
+    boost::python::class_<VirtualMethodWrapper, std::shared_ptr<VirtualMethod>>("VirtualMethod", boost::python::no_init)
         .def("v", &VirtualMethod::v)
         .def("p", boost::python::pure_virtual(&VirtualMethod::p))
         ;

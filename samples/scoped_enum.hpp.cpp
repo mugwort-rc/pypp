@@ -6,7 +6,7 @@
 
 
 void init_samples_scoped_enum_hpp() {
-    auto boost_python_Class = boost::python::class_<Class>("Class", boost::python::no_init)
+    auto boost_python_Class = boost::python::class_<Class, std::shared_ptr<Class>>("Class", boost::python::no_init)
         ;
     {
         boost::python::scope scope = boost_python_Class;
