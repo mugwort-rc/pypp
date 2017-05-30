@@ -187,8 +187,12 @@ class BoostPythonFunction(object):
             return CodeBlock.wrap_inline_comment(result)
         return result
 
-    def result_type(self, node):
-        return node.result_type.spelling
+    @classmethod
+    def result_type(self, node, canonical=False):
+        result_type = node.result_type
+        if canonical:
+            result_type = result_type.get_canonical()
+        return result_type.spelling
 
     @classmethod
     def arg_types(cls, node):
@@ -258,7 +262,7 @@ class BoostPythonFunction(object):
         return ""
 
     def register_return_value_policy(self, node):
-        result_type = self.result_type(node)
+        result_type = self.result_type(node, canonical=True)
         if result_type.endswith("*") or result_type.endswith("&"):
             # TODO: other types
             if result_type.endswith("*"):
@@ -606,7 +610,7 @@ class BoostPythonClass(object):
                     ])
                 continue
             # CXX_METHOD
-            result_type = method.result_type.spelling
+            result_type = BoostPythonFunction.result_type(method)
             name = method.spelling
             pyname = check_reserved(name)
             if method.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
