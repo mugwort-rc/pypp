@@ -101,6 +101,10 @@ def check_reserved(word):
         return "{}_".format(word)
     return word
 
+def is_copy_method(func):
+    args = list(func.get_arguments())
+    return len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE
+
 
 class NodeVisitor(object):
     def visit(self, node):
@@ -355,6 +359,9 @@ class BoostPythonMethod(BoostPythonFunction):
     def is_escape_all(self):
         return all(map(self.has_function_pointer, self.functions))
 
+    def has_static_method(self):
+        return any(map(lambda x: x.is_static_method(), self.functions))
+
 
 class BoostPythonProtectedMethod(BoostPythonMethod):
     def pyname(self):
@@ -364,7 +371,7 @@ class BoostPythonProtectedMethod(BoostPythonMethod):
 
 
 class BoostPythonClass(object):
-    def __init__(self, name, enable_defvisitor=False, enable_scope=False):
+    def __init__(self, name, enable_defvisitor=False, enable_protected=False, enable_scope=False):
         self.name = name
         self.bases = []
         self.methods = OrderedDict()
@@ -374,6 +381,7 @@ class BoostPythonClass(object):
         self.constructors = []
         self.noncopyable = False
         self.enable_defvisitor = enable_defvisitor
+        self.enable_protected = enable_protected
         self.enable_scope = enable_scope
 
     def add_bases(self, node):
@@ -418,13 +426,31 @@ class BoostPythonClass(object):
     def set_enable_scope(self, enable):
         self.enable_scope = enable
 
+    def is_copyable(self):
+        for init in self.constructors:
+            if is_copy_method(init):
+                return True
+        if "operator=" in self.methods:
+            for method in self.methods["operator="].functions:
+                if is_copy_method(method):
+                    return True
+        return False
+
     def has_virtual_method(self):
         return bool(self.virtual_methods)
+
+    def has_protected_method(self):
+        if not self.enable_protected:
+            return False
+        return bool(self.protected_methods)
+
+    def has_wrapper(self):
+        return self.has_virtual_method() or self.has_protected_method()
 
     def has_decl_code(self):
         if self.virtual_methods:
             return True
-        if self.protected_methods:
+        if self.enable_protected and self.protected_methods:
             return True
         for item in self.methods.values():
             if item.decls:
@@ -433,7 +459,10 @@ class BoostPythonClass(object):
 
     def decl_code(self):
         result = CodeBlock([])
-        result += self.class_wrapper()
+        # wrapper
+        if self.has_wrapper():
+            result += self.class_wrapper()
+        # function overloads
         for item in self.methods.values():
             if item.decls:
                 result += item.decls
@@ -446,7 +475,7 @@ class BoostPythonClass(object):
         if self.enable_scope:
             assignment = "auto boost_python_{} = ".format(self.name)
         class_ = self.name
-        if self.has_virtual_method():
+        if self.has_wrapper():
             class_ = "{}Wrapper".format(self.name)
         bases = ""
         if self.bases:
@@ -456,7 +485,7 @@ class BoostPythonClass(object):
         held = ", std::shared_ptr<{}>".format(self.name)
         # TODO: held class option
         noncopy = ""
-        if self.noncopyable:
+        if self.noncopyable or not self.is_copyable():  # TODO: `using Class::Class;` case
             noncopy = ", boost::noncopyable"
         opt = bases + held + noncopy
         constructor_count = len(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
@@ -528,15 +557,22 @@ class BoostPythonClass(object):
                 if name in self.methods:
                     if not self.methods[name].is_escape_all():
                         escape = False
-                if escape and name in self.protected_methods:
-                    if not self.protected_methods[name].is_escape_all():
-                        escape = False
+                if self.enable_protected:
+                    if escape and name in self.protected_methods:
+                        if not self.protected_methods[name].is_escape_all():
+                            escape = False
                 if escape:
                     static = "//{}".format(static)
                 defs.append(static)
                 added.append(name)
-        for item in self.protected_methods.values():
-            defs += item.to_code_block(class_name=class_)
+        if self.enable_protected:
+            protected_static_methods = []
+            for name, item in self.protected_methods.items():
+                defs += item.to_code_block(class_name=class_)
+                if item.has_static_method():
+                    protected_static_methods.append(name)
+            for name in protected_static_methods:
+                defs.append('.staticmethod("_{}")'.format(name))
         defs.append(";")
         code.append(defs)
         return code
@@ -621,8 +657,9 @@ class BoostPythonClass(object):
             tmp.append("}")
             body += tmp
 
-        for name in self.protected_methods:
-            body.append("using {}::{};".format(self.name, name))
+        if self.enable_protected:
+            for name in self.protected_methods:
+                body.append("using {}::{};".format(self.name, name))
 
         return CodeBlock([
             "class {} :".format("{}Wrapper".format(self.name)),
@@ -674,12 +711,13 @@ class BoostPythonEnum(object):
 
 
 class BoostPythonGenerator(Generator):
-    def __init__(self, enable_defvisitor=False):
+    def __init__(self, enable_defvisitor=False, enable_protected=False):
         self.classes = OrderedDict()
         self.class_forward_declarations = []
         self.functions = OrderedDict()
         self.enums = OrderedDict()
         self.enable_defvisitor = enable_defvisitor
+        self.enable_protected = enable_protected
 
     def generate(self, node):
         assert isinstance(node, AstNode)
@@ -736,7 +774,7 @@ class BoostPythonGenerator(Generator):
     def visit_CLASS_DECL(self, node):
         name = node.ptr.spelling
         assert name not in self.classes
-        self.classes[name] = BoostPythonClass(name, enable_defvisitor=self.enable_defvisitor)
+        self.classes[name] = BoostPythonClass(name, enable_defvisitor=self.enable_defvisitor, enable_protected=self.enable_protected)
         pure_virtual_destructor = False
         disable_copy_constructor = False
         disable_copy_operator = False
@@ -758,21 +796,22 @@ class BoostPythonGenerator(Generator):
             if child.ptr.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
                 # check lvalue constructor
                 if child.ptr.kind == clang.cindex.CursorKind.CONSTRUCTOR:
-                    args = list(child.ptr.get_arguments())
-                    if len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE:
+                    if is_copy_method(child.ptr):
                         disable_copy_constructor = True
                 # check lvalue operator
                 elif child.ptr.spelling == "operator=":
-                    args = list(child.ptr.get_arguments())
-                    if len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE:
+                    if is_copy_method(child.ptr):
                         disable_copy_operator = True
             if child.ptr.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
                 continue
             self.visit(child)
 
+        # check force noncopyable
         self.classes[name].set_noncopyable(
+            # has pure virtual method case
             pure_virtual_destructor
             or
+            # ignored copy method case
             (disable_copy_constructor and disable_copy_operator)
         )
         # remove forward declaration

@@ -1,9 +1,9 @@
 // generate by pypp
 // original source code: ./samples/virtual_method.hpp
 
-#include <boost/python.hpp>
 #include "./samples/virtual_method.hpp"
 
+#include <boost/python.hpp>
 
 
 class VirtualMethodWrapper :
@@ -25,7 +25,7 @@ public:
 
 
 void init_samples_virtual_method_hpp() {
-    boost::python::class_<VirtualMethodWrapper, std::shared_ptr<VirtualMethod>>("VirtualMethod", boost::python::no_init)
+    boost::python::class_<VirtualMethodWrapper, std::shared_ptr<VirtualMethod>, boost::noncopyable>("VirtualMethod", boost::python::no_init)
         .def("v", &VirtualMethod::v)
         .def("p", boost::python::pure_virtual(&VirtualMethod::p))
         ;

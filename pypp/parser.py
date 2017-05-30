@@ -10,8 +10,9 @@ class AstParser(object):
         "-std=c++1y",
     ]
 
-    def __init__(self, include_path=[], lib_path=[], defines=[]):
+    def __init__(self, headers=[], include_path=[], lib_path=[], defines=[]):
         self.index = clang.cindex.Index.create()
+        self.headers = headers
         self.include_path = include_path
         self.lib_path = lib_path
         self.defines = defines
@@ -23,8 +24,10 @@ class AstParser(object):
         clang_args += ["-L"+x for x in self.lib_path]
         clang_args += ["-D"+x for x in self.defines]
 
+        includes = self.headers + [source]
+        lines = ['#include "{}"'.format(x) for x in includes]
         src = [
-            ("<entrypoint>.cpp", '#include "{}"'.format(source)),
+            ("<entrypoint>.cpp", "\n".join(lines)),
         ]
         unit = self.index.parse("<entrypoint>.cpp", clang_args, src,
                             TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)

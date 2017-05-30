@@ -1,9 +1,9 @@
 // generate by pypp
 // original source code: ./samples/enum.hpp
 
-#include <boost/python.hpp>
 #include "./samples/enum.hpp"
 
+#include <boost/python.hpp>
 
 void init_samples_enum_hpp() {
     boost::python::enum_<Enum>("Enum")

@@ -16,17 +16,20 @@ from pypp.utils import name2snake
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
+    parser.add_argument("--headers", nargs="+", default=[])
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
     parser.add_argument("--install-defvisitor", default=False, action="store_true")
+    parser.add_argument("--enable-protected", default=False, action="store_true")
     parser.add_argument("--after-shell", default=False, action="store_true")
 
     args = parser.parse_args(argv)
 
-    ast_parser = AstParser(include_path=args.include_path, defines=args.defines)
+    ast_parser = AstParser(headers=args.headers, include_path=args.include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
     generator = BoostPythonGenerator(
         enable_defvisitor=args.install_defvisitor,
+        enable_protected=args.enable_protected,
     )
 
     generated = generator.generate(node)
@@ -35,9 +38,9 @@ def main(argv):
     print("// original source code:", args.input)
 
     print("")
-    print("#include <boost/python.hpp>")
     print('#include "{}"'.format(args.input))
     print("\n".join(map(lambda x: "// TODO: forward declaration class {}".format(x), generator.class_forward_declarations)))
+    print("#include <boost/python.hpp>")
     print("")
     if args.install_defvisitor:
         print("")
