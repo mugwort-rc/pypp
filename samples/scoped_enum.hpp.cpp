@@ -5,6 +5,7 @@
 
 #include <boost/python.hpp>
 
+
 void init_samples_scoped_enum_hpp() {
     auto boost_python_Class = boost::python::class_<Class, std::shared_ptr<Class>, boost::noncopyable>("Class", boost::python::no_init)
         ;

@@ -5,6 +5,7 @@
 
 #include <boost/python.hpp>
 
+
 void init_samples_enum_hpp() {
     boost::python::enum_<Enum>("Enum")
         .value("A", A)

@@ -13,13 +13,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("class_name")
     parser.add_argument("--template", default="defvisitor.hpp")
-    parser.add_argument("--append-cwd", default=False, action="store_true")
     parser.add_argument("--with-example", default=False, action="store_true")
 
     args = parser.parse_args()
 
-    if args.append_cwd:
-        sys.path.append(os.getcwd())
     env = Environment(
         loader=PackageLoader("pypp", "templates"),
     )

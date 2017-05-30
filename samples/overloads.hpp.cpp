@@ -8,7 +8,6 @@
 
 BOOST_PYTHON_FUNCTION_OVERLOADS(addOverloads0, add, 1, 2)
 
-
 void init_samples_overloads_hpp() {
     boost::python::def("add", static_cast<int(*)(int, int)>(&add), addOverloads0());
     boost::python::def("add", static_cast<double(*)(double, double)>(&add));

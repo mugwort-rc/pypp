@@ -9,6 +9,8 @@ import os
 import code
 import readline
 
+from jinja2 import Environment, PackageLoader
+
 from pypp.parser import AstParser
 from pypp.generator import BoostPythonGenerator
 from pypp.utils import name2snake
@@ -16,6 +18,7 @@ from pypp.utils import name2snake
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
+    parser.add_argument("--template", default="template.cpp")
     parser.add_argument("--headers", nargs="+", default=[])
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
@@ -25,6 +28,12 @@ def main(argv):
 
     args = parser.parse_args(argv)
 
+    env = Environment(
+        loader=PackageLoader("pypp", "templates"),
+    )
+
+    template = env.get_template(args.template)
+
     ast_parser = AstParser(headers=args.headers, include_path=args.include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
     generator = BoostPythonGenerator(
@@ -33,30 +42,17 @@ def main(argv):
     )
 
     generated = generator.generate(node)
-
-    print("// generate by pypp")
-    print("// original source code:", args.input)
-
-    print("")
-    print('#include "{}"'.format(args.input))
-    print("\n".join(map(lambda x: "// TODO: forward declaration class {}".format(x), generator.class_forward_declarations)))
-    print("#include <boost/python.hpp>")
-    print("")
-    if args.install_defvisitor:
-        print("")
-        for name in generator.def_visitors():
-            print('#include "{}.hpp"'.format(name))
-        print("")
-
-    if generator.has_decl_code():
-        print("")
-        print(generator.decl_code())
-        print("\n")
-
-    print("void init_{}() {{\n{}\n}}".format(
-            name2snake(args.input),
-            generated,
-    ))
+    ctx = {
+        "input": args.input,
+        "snake_input": name2snake(args.input),
+        "class_forward_declarations": generator.class_forward_declarations,
+        "install_defvisitor": args.install_defvisitor,
+        "def_visitors": generator.def_visitors(),
+        "has_decls": generator.has_decl_code(),
+        "decl_code": generator.decl_code(),
+        "generated": generated,
+    }
+    print(template.render(ctx))
 
     if args.after_shell:
         code.interact(local=locals())
