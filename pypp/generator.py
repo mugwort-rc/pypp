@@ -423,7 +423,7 @@ class BoostPythonClass(object):
         assert node.semantic_parent.spelling == self.name
         if node.kind == clang.cindex.CursorKind.CONSTRUCTOR:
             # skip move constructor
-            if BoostPythonFunction.arg_types(node) == ["{} &&".format(self.name)]:
+            if BoostPythonFunction.arg_types(node) == ["{} &&".format(self.decl)]:
                 return
             self.constructors.append(node)
             return
@@ -520,6 +520,9 @@ class BoostPythonClass(object):
             noncopy = ", boost::noncopyable"
         opt = bases + held + noncopy
         constructors = list(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
+        def is_not_copy(x):
+            return BoostPythonFunction.arg_types(x) != ["const {} &".format(self.decl)]
+        constructors = list(filter(is_not_copy, constructors))
         constructor_count = len(constructors)
         if self.has_pure_virtual_method():
             constructor_count = 0
@@ -895,7 +898,9 @@ class BoostPythonGenerator(Generator):
     def visit_CXX_METHOD(self, node):
         class_name = node.ptr.semantic_parent.spelling
         class_id = self.scope_id(node.ptr.semantic_parent)
-        assert class_id in self.classes
+        if class_id not in self.classes:
+            # outside decl
+            return
         self.classes[class_id].add_method(node.ptr)
 
     def visit_ENUM_DECL(self, node, name=None):
