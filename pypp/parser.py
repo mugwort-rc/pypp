@@ -1,4 +1,8 @@
-import configparser
+try:
+    import configparser
+except ImportError:
+    # for python2
+    import ConfigParser as configparser
 import os
 
 import clang.cindex
@@ -14,7 +18,7 @@ def __load_config(path):
     global LIBCLANG_PATH
     config = configparser.ConfigParser()
     config.read(path)
-    LIBCLANG_PATH = config["llvm"]["libclang"]
+    LIBCLANG_PATH = config.get("llvm", "libclang")
 if not LIBCLANG_PATH and os.path.exists(".PYPP_LIBCLANG_PATH"):
     __load_config(".PYPP_LIBCLANG_PATH")
 if not LIBCLANG_PATH and os.path.exists(os.path.expanduser("~/.config/pypp.conf")):

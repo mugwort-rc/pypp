@@ -125,12 +125,13 @@ class NodeVisitor(object):
                         self.visit(item)
             elif isinstance(value, AstNode):
                 self.visit(value)
-
+#class NodeVisitor
 
 
 class Generator(NodeVisitor):
     def generate(self, node):
         raise NotImplementedError
+#class Generator
 
 
 class BoostPythonFunction(object):
@@ -293,6 +294,7 @@ class BoostPythonFunction(object):
     @property
     def cpp_name(self):
         return "::".join(self.namespaces + [self.name])
+#class BoostPythonFunction
 
 
 class BoostPythonMethod(BoostPythonFunction):
@@ -384,6 +386,7 @@ class BoostPythonMethod(BoostPythonFunction):
 
     def has_static_method(self):
         return any(map(lambda x: x.is_static_method(), self.functions))
+#class BoostPythonMethod
 
 
 class BoostPythonProtectedMethod(BoostPythonMethod):
@@ -391,6 +394,7 @@ class BoostPythonProtectedMethod(BoostPythonMethod):
         if not self.name.startswith("_"):
             return check_reserved("_" + self.name)
         return super(BoostPythonProtectedMethod, self).pyname()
+#class BoostPythonProtectedMethod
 
 
 class BoostPythonClass(object):
@@ -400,9 +404,12 @@ class BoostPythonClass(object):
         self.bases = []
         self.methods = OrderedDict()
         self.protected_methods = OrderedDict()
+        self.properties = OrderedDict()
         self.static_methods = []
         self.virtual_methods = []
         self.constructors = []
+        self.private_methods = []
+        self.dropped_methods = []
         self.noncopyable = False
         self.enable_defvisitor = enable_defvisitor
         self.enable_protected = enable_protected
@@ -418,12 +425,13 @@ class BoostPythonClass(object):
 
     def add_method(self, node):
         # skip implement part
-        if node.lexical_parent.kind != clang.cindex.CursorKind.CLASS_DECL:
+        if not self.is_declaration_part(node):
             return
         assert node.semantic_parent.spelling == self.name
         if node.kind == clang.cindex.CursorKind.CONSTRUCTOR:
             # skip move constructor
             if BoostPythonFunction.arg_types(node) == ["{} &&".format(self.decl)]:
+                self.dropped_methods.append(node)
                 return
             self.constructors.append(node)
             return
@@ -432,7 +440,9 @@ class BoostPythonClass(object):
             self.virtual_methods.append(node)
             self.set_noncopyable(True)
             return
-        if node.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
+        if node.access_specifier == clang.cindex.AccessSpecifier.PRIVATE:
+            self.private_methods.append(node)
+        elif node.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
             # init if it is not added
             if node.spelling not in self.protected_methods:
                 self.protected_methods[node.spelling] = BoostPythonProtectedMethod(node.spelling)
@@ -448,21 +458,41 @@ class BoostPythonClass(object):
         if node.is_virtual_method():
             self.virtual_methods.append(node)
 
+    def add_property(self, node):
+        # skip implement part
+        if not self.is_declaration_part(node):
+            return
+        assert node.semantic_parent.spelling == self.name
+        if node.access_specifier == clang.cindex.AccessSpecifier.PUBLIC:
+            # init if it is not added
+            if node.spelling not in self.properties:
+                self.properties[node.spelling] = node
+
     def set_noncopyable(self, b):
         self.noncopyable = self.noncopyable or b
 
     def set_enable_scope(self, enable):
         self.enable_scope = enable
 
-    def is_copyable(self):
+    @property
+    def copy_disabled(self):
+        # TODO: check boost::noncopyable in bases
+        flag = 0b00
         for init in self.constructors:
             if is_copy_method(init):
-                return True
-        if "operator=" in self.methods:
-            for method in self.methods["operator="].functions:
-                if is_copy_method(method):
-                    return True
-        return False
+                if init.access_specifier != clang.cindex.AccessSpecifier.PRIVATE:
+                    flag |= 0b10
+                    break
+        for node in self.private_methods:
+            if is_copy_method(node):
+                flag |= 0b01
+                break
+        return flag == 0b11
+
+    @classmethod
+    def is_declaration_part(cls, node):
+        return node.lexical_parent.kind in [clang.cindex.CursorKind.CLASS_DECL,
+                                            clang.cindex.CursorKind.STRUCT_DECL]
 
     def has_virtual_method(self):
         return bool(self.virtual_methods)
@@ -516,7 +546,7 @@ class BoostPythonClass(object):
         held = ", std::shared_ptr<{}>".format(self.decl)
         # TODO: held class option
         noncopy = ""
-        if self.noncopyable or not self.is_copyable():  # TODO: `using Class::Class;` case
+        if self.noncopyable or self.copy_disabled:  # TODO: `using Class::Class;` case
             noncopy = ", boost::noncopyable"
         opt = bases + held + noncopy
         constructors = list(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
@@ -527,11 +557,14 @@ class BoostPythonClass(object):
         if self.has_pure_virtual_method():
             constructor_count = 0
         if constructor_count == 0:
+            # check has virtual or explicit disabled
+            init = ", boost::python::no_init" if self.noncopyable or self.copy_disabled else ""
             code.append(
-            '{assign}boost::python::class_<{cls}{opt}>("{pycls}", boost::python::no_init)'.format(
+            '{assign}boost::python::class_<{cls}{opt}>("{pycls}"{init})'.format(
                 assign=assignment,
                 cls=class_,
                 pycls=check_reserved(self.name),
+                init=init,
                 opt=opt,
                 )
             )
@@ -581,6 +614,9 @@ class BoostPythonClass(object):
             defs.append(".def({}())".format(self.defvisitor_name))
         for item in self.methods.values():
             defs += item.to_code_block()
+        for prop, node in self.properties.items():
+            mode = "only" if node.type.is_const_qualified() else "write"
+            defs.append('.def_read{0}("{1}", &{2}::{1})'.format(mode, prop, class_))
         if self.static_methods:
             added = []
             for name in self.static_methods:
@@ -710,6 +746,7 @@ class BoostPythonClass(object):
             body,
             "};",
         ])
+#class BoostPythonClass
 
 
 class BoostPythonEnum(object):
@@ -746,6 +783,7 @@ class BoostPythonEnum(object):
                 "}",
             ])
         return block
+#class BoostPythonEnum
 
 
 class BoostPythonGenerator(Generator):
@@ -833,6 +871,12 @@ class BoostPythonGenerator(Generator):
         self.functions[func_id].add_function(node.ptr)
 
     def visit_CLASS_DECL(self, node):
+        self._class_decl(node)
+
+    def visit_STRUCT_DECL(self, node):
+        self._class_decl(node, struct=True)
+
+    def _class_decl(self, node, struct=False):
         name = node.ptr.spelling
         class_id = self.scope_id(node.ptr)
         assert class_id not in self.classes
@@ -880,6 +924,9 @@ class BoostPythonGenerator(Generator):
         if i < 0:
             del self.classes[class_id]
             self.class_forward_declarations.append(name)
+        else:
+            if class_id in self.class_forward_declarations:
+                self.class_forward_declarations.remove(class_id)
 
     def visit_CONSTRUCTOR(self, node):
         class_name = node.ptr.semantic_parent.spelling
@@ -903,6 +950,12 @@ class BoostPythonGenerator(Generator):
             return
         self.classes[class_id].add_method(node.ptr)
 
+    def visit_FIELD_DECL(self, node):
+        class_name = node.ptr.semantic_parent.spelling
+        class_id = self.scope_id(node.ptr.semantic_parent)
+        assert class_id in self.classes
+        self.classes[class_id].add_property(node.ptr)
+
     def visit_ENUM_DECL(self, node, name=None):
         # unnamed special case
         if name is None:
@@ -922,3 +975,4 @@ class BoostPythonGenerator(Generator):
         for child in node:
             if child.ptr.kind == clang.cindex.CursorKind.ENUM_DECL:
                 self.visit_ENUM_DECL(child, name=node.ptr.spelling)
+#class BoostPythonGenerator

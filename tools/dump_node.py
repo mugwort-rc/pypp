@@ -42,9 +42,11 @@ def main():
     unit = index.parse("<entrypoint>.cpp", clang_args, src,
                         clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
 
+    target_cursors = []
     for unit_cursor in unit.cursor.get_children():
         if not unit_cursor.location.file.name.endswith(args.header):
             continue
+        target_cursors.append(unit_cursor)
         print_node_tree(unit_cursor)
 
     if args.shell:
