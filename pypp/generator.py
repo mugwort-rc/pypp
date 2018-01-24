@@ -56,6 +56,41 @@ CPP_OPERATORS = [
     "operator|=",
     "operator,",
 ]
+UNARY_OPERATOR_MAP = {
+    "operator~": "__inv__",
+    "operator!": "__not__",
+    "operator+": "__pos__",
+    "operator-": "__neg__",
+}
+BINARY_OPERATOR_MAP = {
+    "operator+": "__add__",
+    "operator-": "__sub__",
+    "operator*": "__mul__",
+    "operator/": "__floordiv__",
+    "operator%": "__mod__",
+    "operator<<": "__lshift__",
+    "operator>>": "__rshift__",
+    "operator<": "__lt__",
+    "operator<=": "__le__",
+    "operator>": "__gt__",
+    "operator>=": "__ge__",
+    "operator==": "__eq__",
+    "operator!=": "__ne__",
+    "operator^": "__xor__",
+    "operator&": "__and__",
+    "operator|": "__or__",
+    "operator bool()": "__truth__",
+    "operator+=": "__iadd__",
+    "operator-=": "__isub__",
+    "operator*=": "__imul__",
+    "operator/=": "__ifloordiv__",
+    "operator%=": "__imod__",
+    "operator<<=": "__ilshift__",
+    "operator>>=": "__irshift__",
+    "operator&=": "__iand__",
+    "operator^=": "__ixor__",
+    "operator|=": "__ior__",
+}
 
 NOT_DEFAULT_ARG_KINDS = [
     clang.cindex.CursorKind.TYPE_REF,
@@ -186,6 +221,7 @@ class BoostPythonFunction(object):
                 result.append(def_)
             result
         if self.name in CPP_OPERATORS:
+            # global operator overload is not supported
             return CodeBlock.wrap_inline_comment(result)
         return result
 
@@ -344,7 +380,9 @@ class BoostPythonMethod(BoostPythonFunction):
                     def_ = "//{}".format(def_)
                 result.append(def_)
         if self.name in CPP_OPERATORS:
-            return CodeBlock.wrap_inline_comment(result)
+            if self.name not in BINARY_OPERATOR_MAP or self.name in UNARY_OPERATOR_MAP:
+                # unsupported operator (TODO: unary operator)
+                return CodeBlock.wrap_inline_comment(result)
         return result
 
     def boost_python_overloads(self, node):
@@ -379,6 +417,8 @@ class BoostPythonMethod(BoostPythonFunction):
         ))
 
     def pyname(self):
+        if self.name in BINARY_OPERATOR_MAP and self.name not in UNARY_OPERATOR_MAP:
+            return BINARY_OPERATOR_MAP[self.name]
         return check_reserved(self.name)
 
     def is_escape_all(self):
