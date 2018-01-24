@@ -1,7 +1,28 @@
+import configparser
+import os
+
 import clang.cindex
 from clang.cindex import TranslationUnit
 
-clang.cindex.Config.set_library_file("/usr/lib/llvm-3.8/lib/libclang-3.8.so.1")
+LIBCLANG_PATH = None
+LIBCLANG_PATH_DEFAULT = {
+    "posix": "/usr/lib/llvm-3.8/lib/libclang-3.8.so.1",  # Ubuntu 16.04
+    "nt": r"C:\Program Files\LLVM\bin\libclang.dll",
+}
+
+def __load_config(path):
+    global LIBCLANG_PATH
+    config = configparser.ConfigParser()
+    config.read(path)
+    LIBCLANG_PATH = config["llvm"]["libclang"]
+if not LIBCLANG_PATH and os.path.exists(".PYPP_LIBCLANG_PATH"):
+    __load_config(".PYPP_LIBCLANG_PATH")
+if not LIBCLANG_PATH and os.path.exists(os.path.expanduser("~/.config/pypp.conf")):
+    __load_config(os.path.expanduser("~/.config/pypp.conf"))
+if not LIBCLANG_PATH:
+    LIBCLANG_PATH = os.getenv("PYPP_LIBCLANG_PATH", LIBCLANG_PATH_DEFAULT[os.name])
+
+clang.cindex.Config.set_library_file(LIBCLANG_PATH)
 
 
 class AstParser(object):
