@@ -92,6 +92,29 @@ BINARY_OPERATOR_MAP = {
     "operator|=": "__ior__",
 }
 
+def is_unary_operator(node):
+    if node.spelling not in UNARY_OPERATOR_MAP:
+        return False
+    args = list(node.get_arguments())
+    if len(args) > 0:
+        return False
+    return True
+
+def is_binary_operator(node):
+    if node.spelling in UNARY_OPERATOR_MAP:
+        if is_unary_operator(node):
+            return False
+    if node.spelling not in BINARY_OPERATOR_MAP:
+        return False
+    return True
+
+def is_convertible_operator(node):
+    return is_convertible_operator_name(node.spelling)
+
+def is_convertible_operator_name(name):
+    return name in BINARY_OPERATOR_MAP or name in UNARY_OPERATOR_MAP
+
+
 NOT_DEFAULT_ARG_KINDS = [
     clang.cindex.CursorKind.TYPE_REF,
     clang.cindex.CursorKind.TEMPLATE_REF,
@@ -343,9 +366,13 @@ class BoostPythonMethod(BoostPythonFunction):
             decl = "&{cls}::{func}".format(cls=class_name, func=self.name)
             if func.is_pure_virtual_method():
                 decl = "boost::python::pure_virtual({})".format(decl)
+            pyname = self.pyname()
+            # operator special case
+            if is_convertible_operator_name(self.name):
+                pyname = self.resolve_operator_map(func)
             result = CodeBlock([
                 '.def("{func}", {decl}{opt})'.format(
-                    func=self.pyname(),
+                    func=pyname,
                     decl=decl,
                     opt=option
                 ),
@@ -370,8 +397,12 @@ class BoostPythonMethod(BoostPythonFunction):
                 )
                 if func.is_pure_virtual_method():
                     decl = "boost::python::pure_virtual({})".format(decl)
+                pyname = self.pyname()
+                # operator special case
+                if is_convertible_operator_name(self.name):
+                    pyname = self.resolve_operator_map(func)
                 def_ = '.def("{func}", {decl}{opt})'.format(
-                    func=self.pyname(),
+                    func=pyname,
                     decl=decl,
                     opt=option,
                 )
@@ -380,8 +411,8 @@ class BoostPythonMethod(BoostPythonFunction):
                     def_ = "//{}".format(def_)
                 result.append(def_)
         if self.name in CPP_OPERATORS:
-            if self.name not in BINARY_OPERATOR_MAP or self.name in UNARY_OPERATOR_MAP:
-                # unsupported operator (TODO: unary operator)
+            if not is_convertible_operator_name(self.name):
+                # unsupported operator
                 return CodeBlock.wrap_inline_comment(result)
         return result
 
@@ -420,6 +451,14 @@ class BoostPythonMethod(BoostPythonFunction):
         if self.name in BINARY_OPERATOR_MAP and self.name not in UNARY_OPERATOR_MAP:
             return BINARY_OPERATOR_MAP[self.name]
         return check_reserved(self.name)
+
+    @classmethod
+    def resolve_operator_map(cls, node):
+        assert is_convertible_operator_name(node.spelling)
+        if is_binary_operator(node):
+            return BINARY_OPERATOR_MAP[node.spelling]
+        elif is_unary_operator(node):
+            return UNARY_OPERATOR_MAP[node.spelling]
 
     def is_escape_all(self):
         return all(map(self.has_function_pointer, self.functions))
