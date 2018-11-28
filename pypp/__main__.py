@@ -25,6 +25,7 @@ def main(argv):
     parser.add_argument("--install-defvisitor", default=False, action="store_true")
     parser.add_argument("--enable-protected", default=False, action="store_true")
     parser.add_argument("--after-shell", default=False, action="store_true")
+    parser.add_argument("--verbose", action="store_true")
 
     args = parser.parse_args(argv)
 
@@ -36,6 +37,12 @@ def main(argv):
 
     ast_parser = AstParser(headers=args.headers, include_path=args.include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
+
+    if args.verbose:
+        print("/*")
+        ast_parser.dump_errors(sys.stderr)
+        print(" */")
+
     generator = BoostPythonGenerator(
         enable_defvisitor=args.install_defvisitor,
         enable_protected=args.enable_protected,

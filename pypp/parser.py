@@ -29,6 +29,15 @@ if not LIBCLANG_PATH:
 clang.cindex.Config.set_library_file(LIBCLANG_PATH)
 
 
+CLANG_ERROR_SEVERITY = [
+    "Ignored",
+    "Note",
+    "Warning",
+    "Error",
+    "Fatal",
+]
+
+
 class AstParser(object):
 
     clang_args = [
@@ -41,6 +50,7 @@ class AstParser(object):
         self.include_path = include_path
         self.lib_path = lib_path
         self.defines = defines
+        self.errors = []
 
     def parse(self, source):
         #assert source.endswith(".h") or source.endswith(".hpp")
@@ -56,7 +66,19 @@ class AstParser(object):
         ]
         unit = self.index.parse("<entrypoint>.cpp", clang_args, src,
                             TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
+        self.errors = list(unit.diagnostics)
         return AstNodeRoot(unit.cursor, source)
+
+    def dump_errors(self, fileobj):
+        if not self.errors:
+            print("no errors", file=fileobj)
+            return
+        for error in self.errors:
+            print("{}: {!r}@{!r}".format(
+                CLANG_ERROR_SEVERITY[error.severity],
+                error.spelling,
+                error.location,
+            ))
 
 
 class AstNode(object):
