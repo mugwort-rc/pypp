@@ -20,6 +20,8 @@ def main(argv):
     parser.add_argument("input")
     parser.add_argument("--template", default="template.cpp")
     parser.add_argument("--headers", nargs="+", default=[])
+    parser.add_argument("--name", default=None)
+    parser.add_argument("--strip-path", default=None)
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
     parser.add_argument("--install-defvisitor", default=False, action="store_true")
@@ -49,9 +51,13 @@ def main(argv):
     )
 
     generated = generator.generate(node)
+
+    if args.strip_path:
+        if args.input.startswith(args.strip_path):
+            args.input = args.input[len(args.strip_path):]
     ctx = {
         "input": args.input,
-        "snake_input": name2snake(args.input),
+        "init_name": name2snake(args.input) if args.name is None else args.name,
         "class_forward_declarations": generator.class_forward_declarations,
         "install_defvisitor": args.install_defvisitor,
         "def_visitors": generator.def_visitors(),

@@ -364,8 +364,6 @@ class BoostPythonMethod(BoostPythonFunction):
             func = self.functions[0]
             option = self.option(0)
             decl = "&{cls}::{func}".format(cls=class_name, func=self.name)
-            if func.is_pure_virtual_method():
-                decl = "boost::python::pure_virtual({})".format(decl)
             pyname = self.pyname()
             # operator special case
             if is_convertible_operator_name(self.name):
@@ -395,8 +393,6 @@ class BoostPythonMethod(BoostPythonFunction):
                     const=" const" if func.is_const_method() else "",
                     scope=cast_scope,
                 )
-                if func.is_pure_virtual_method():
-                    decl = "boost::python::pure_virtual({})".format(decl)
                 pyname = self.pyname()
                 # operator special case
                 if is_convertible_operator_name(self.name):
@@ -625,7 +621,7 @@ class BoostPythonClass(object):
         held = ", std::shared_ptr<{}>".format(self.decl)
         # TODO: held class option
         noncopy = ""
-        if self.noncopyable or self.copy_disabled:  # TODO: `using Class::Class;` case
+        if self.noncopyable or self.copy_disabled or self.has_pure_virtual_method():  # TODO: `using Class::Class;` case
             noncopy = ", boost::noncopyable"
         opt = bases + held + noncopy
         constructors = list(filter(lambda x: x.access_specifier == clang.cindex.AccessSpecifier.PUBLIC, self.constructors))
@@ -637,7 +633,7 @@ class BoostPythonClass(object):
             constructor_count = 0
         if constructor_count == 0:
             # check has virtual or explicit disabled
-            init = ", boost::python::no_init" if self.noncopyable or self.copy_disabled else ""
+            init = ", boost::python::no_init"# if self.noncopyable or self.copy_disabled else ""
             code.append(
             '{assign}boost::python::class_<{cls}{opt}>("{pycls}"{init})'.format(
                 assign=assignment,
@@ -776,7 +772,7 @@ class BoostPythonClass(object):
                 args.append(arg.spelling or "_{}".format(i))
                 args_with_type.append("{} {}".format(type_str, arg.spelling or "_{}".format(i)))
             tmp = CodeBlock([
-                "{} {} ({}){} {{".format(
+                "{} {} ({}){} override {{".format(
                     result_type,
                     name,
                     ", ".join(args_with_type),
@@ -788,25 +784,20 @@ class BoostPythonClass(object):
             ret = ""
             if result_type != "void":
                 ret = "return "
-            if method.is_pure_virtual_method():
-                tmp.append(CodeBlock([
-                    '{}this->get_override("{}")({});'.format(ret, pyname, ", ".join(args))
-                ]))
-            else:
-                auto = name
-                while auto in args:
-                    auto += "_"
-                tmp.append(CodeBlock([
-                    'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, pyname),
-                    CodeBlock([
-                        "{}{}({});".format(ret, auto, ", ".join(args)),
-                    ]),
-                    "} else {",
-                    CodeBlock([
-                        "{}{}::{}({});".format(ret, self.name, name, ", ".join(args)),
-                    ]),
-                    "}",
-                ]))
+            auto = name
+            while auto in args:
+                auto += "_"
+            tmp.append(CodeBlock([
+                'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, pyname),
+                CodeBlock([
+                    "{}{}({});".format(ret, auto, ", ".join(args)),
+                ]),
+                "} else {",
+                CodeBlock([
+                    "{}{}::{}({});".format(ret, self.name, name, ", ".join(args)),
+                ]),
+                "}",
+            ]))
             tmp.append("}")
             body += tmp
 
@@ -829,8 +820,9 @@ class BoostPythonClass(object):
 
 
 class BoostPythonEnum(object):
-    def __init__(self, name, scope=None):
+    def __init__(self, name, scoped_enum=False, scope=None):
         self.name = name
+        self.scoped_enum = scoped_enum
         self.scope = scope
         self.values = []
 
@@ -839,18 +831,18 @@ class BoostPythonEnum(object):
 
     def to_code_block(self):
         scope = ""
+        value_scope = ""
         if self.scope:
-            scope = self.scope + "::"
-        values = ['.value("{}", {})'.format(check_reserved(x), scope+x) for x in self.values]
+            scope = value_scope = self.scope + "::"
+        if self.scoped_enum:
+            value_scope += self.name + "::"
+        values = ['.value("{}", {})'.format(check_reserved(x), value_scope+x) for x in self.values]
         block = CodeBlock([
             'boost::python::enum_<{enum}>("{name}")'.format(
                 enum=scope + self.name,
                 name=check_reserved(self.name),
             ),
-            CodeBlock(values + [
-                ".export_values()",
-                ";",
-            ]),
+            CodeBlock(values + ([";"] if self.scoped_enum else [".export_values()", ";"])),
         ])
         if self.scope:
             block = CodeBlock([
@@ -1045,7 +1037,7 @@ class BoostPythonGenerator(Generator):
         if node.ptr.semantic_parent.kind == clang.cindex.CursorKind.CLASS_DECL:
             scope = self.scope_id(node.ptr.semantic_parent)
             self.classes[scope].set_enable_scope(True)
-        self.enums[name] = BoostPythonEnum(name, scope="::".join(self.namespaces(node.ptr)))
+        self.enums[name] = BoostPythonEnum(name, scoped_enum=node.ptr.is_scoped_enum(), scope="::".join(self.namespaces(node.ptr)))
         for child in node:
             assert child.ptr.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL
             self.enums[name].add_value(child.ptr)
