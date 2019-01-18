@@ -28,6 +28,8 @@ def main(argv):
     parser.add_argument("--enable-protected", default=False, action="store_true")
     parser.add_argument("--after-shell", default=False, action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    # for linux
+    parser.add_argument("--using-gcc-version", default="7")
 
     args = parser.parse_args(argv)
 
@@ -37,7 +39,11 @@ def main(argv):
 
     template = env.get_template(args.template)
 
-    ast_parser = AstParser(headers=args.headers, include_path=args.include_path, defines=args.defines)
+    include_path = args.include_path
+    if os.name == "posix":
+        include_path.append("/usr/lib/gcc/x86_64-linux-gnu/{}/include/".format(args.using_gcc_version))
+
+    ast_parser = AstParser(headers=args.headers, include_path=include_path, defines=args.defines)
     node = ast_parser.parse(args.input)
 
     if args.verbose:

@@ -91,6 +91,9 @@ BINARY_OPERATOR_MAP = {
     "operator^=": "__ixor__",
     "operator|=": "__ior__",
 }
+OTHER_OPERATOR_MAP = {
+    "operator()": "__call__",
+}
 
 def is_unary_operator(node):
     if node.spelling not in UNARY_OPERATOR_MAP:
@@ -108,11 +111,16 @@ def is_binary_operator(node):
         return False
     return True
 
+def is_other_operator(node):
+    if node.spelling not in OTHER_OPERATOR_MAP:
+        return False
+    return True
+
 def is_convertible_operator(node):
     return is_convertible_operator_name(node.spelling)
 
 def is_convertible_operator_name(name):
-    return name in BINARY_OPERATOR_MAP or name in UNARY_OPERATOR_MAP
+    return name in BINARY_OPERATOR_MAP or name in UNARY_OPERATOR_MAP or name in OTHER_OPERATOR_MAP
 
 
 NOT_DEFAULT_ARG_KINDS = [
@@ -455,6 +463,8 @@ class BoostPythonMethod(BoostPythonFunction):
             return BINARY_OPERATOR_MAP[node.spelling]
         elif is_unary_operator(node):
             return UNARY_OPERATOR_MAP[node.spelling]
+        elif is_other_operator(node):
+            return OTHER_OPERATOR_MAP[node.spelling]
 
     def is_escape_all(self):
         return all(map(self.has_function_pointer, self.functions))
