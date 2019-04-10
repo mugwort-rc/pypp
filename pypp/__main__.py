@@ -12,13 +12,13 @@ import readline
 from jinja2 import Environment, PackageLoader
 
 from pypp.parser import AstParser
-from pypp.generator import BoostPythonGenerator
+from pypp.generator import Generator
+from pypp.option import GeneratorOption
 from pypp.utils import name2snake
 
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
-    parser.add_argument("--template", default="template.cpp")
     parser.add_argument("--headers", nargs="+", default=[])
     parser.add_argument("--name", default=None)
     parser.add_argument("--strip-path", default=None)
@@ -28,6 +28,7 @@ def main(argv):
     parser.add_argument("--enable-protected", default=False, action="store_true")
     parser.add_argument("--after-shell", default=False, action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--experimental-pybind11", action="store_true")
     # for linux
     parser.add_argument("--using-gcc-version", default="7")
 
@@ -37,7 +38,11 @@ def main(argv):
         loader=PackageLoader("pypp", "templates"),
     )
 
-    template = env.get_template(args.template)
+    pybind11 = args.experimental_pybind11
+    if pybind11:
+        template = env.get_template("pybind11.cpp")
+    else:
+        template = env.get_template("boost.cpp")
 
     include_path = args.include_path
     if os.name == "posix":
@@ -51,12 +56,14 @@ def main(argv):
         ast_parser.dump_errors(sys.stderr)
         print(" */")
 
-    generator = BoostPythonGenerator(
+    generator = Generator(
         enable_defvisitor=args.install_defvisitor,
         enable_protected=args.enable_protected,
     )
 
-    generated = generator.generate(node)
+    option = GeneratorOption(boost=not(pybind11))
+
+    generated = generator.generate(node, option)
 
     if args.strip_path:
         if args.input.startswith(args.strip_path):

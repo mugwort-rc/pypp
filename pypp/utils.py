@@ -1,10 +1,57 @@
 import re
 
+import clang.cindex
+
+from .constants import (
+    UNARY_OPERATOR_MAP,
+    BINARY_OPERATOR_MAP,
+    OTHER_OPERATOR_MAP,
+    PYTHON_RESERVED,
+)
+
 def name2snake(name):
     ret = re.sub(r"\W+", "_", name)
     if ret and ret.startswith("_"):
         ret = ret[1:]
     return ret
+
+
+def is_unary_operator(node):
+    if node.spelling not in UNARY_OPERATOR_MAP:
+        return False
+    args = list(node.get_arguments())
+    if len(args) > 0:
+        return False
+    return True
+
+def is_binary_operator(node):
+    if node.spelling in UNARY_OPERATOR_MAP:
+        if is_unary_operator(node):
+            return False
+    if node.spelling not in BINARY_OPERATOR_MAP:
+        return False
+    return True
+
+def is_other_operator(node):
+    if node.spelling not in OTHER_OPERATOR_MAP:
+        return False
+    return True
+
+def is_convertible_operator(node):
+    return is_convertible_operator_name(node.spelling)
+
+def is_convertible_operator_name(name):
+    return name in BINARY_OPERATOR_MAP or name in UNARY_OPERATOR_MAP or name in OTHER_OPERATOR_MAP
+
+
+def check_reserved(word):
+    if word in PYTHON_RESERVED:
+        return "{}_".format(word)
+    return word
+
+def is_copy_method(func):
+    args = list(func.get_arguments())
+    return len(args) == 1 and args[0].type.kind == clang.cindex.TypeKind.LVALUEREFERENCE
 
 
 class CodeBlock(list):
