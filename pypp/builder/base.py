@@ -8,6 +8,10 @@ class BuilderBase:
         raise NotImplementedError
 
 
+class ReturnValuePolicyBuilder(BuilderBase):
+    def make(self, result_type):
+        raise NotImplementedError
+
 class FunctionBuilder(BuilderBase):
     def make(self, func):
         raise NotImplementedError

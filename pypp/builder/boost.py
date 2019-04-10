@@ -9,10 +9,27 @@ from ..generator import Function
 from .. import utils
 
 
+class BoostPythonReturnValuePolicyBuilder(base.ReturnValuePolicyBuilder):
+    def make(self, result_type):
+        if result_type.endswith("*") or result_type.endswith("&"):
+            # TODO: other types
+            if result_type.endswith("*"):
+                policy = "boost::python::return_opaque_pointer"
+            elif result_type.endswith("&"):
+                # TODO: internal reference case
+                if result_type.startswith("const"):
+                    policy = "boost::python::copy_const_reference"
+                else:
+                    policy = "boost::python::copy_non_const_reference"
+            return "boost::python::return_value_policy<{}>()".format(policy)
+        else:
+            return ""
+
+
 class BoostPythonFunctionBuilder(base.FunctionBuilder):
     def make(self, func):
         if len(func.functions) == 1:
-            option = func.option(0)
+            option = func.option(0, self.option)
             result = utils.CodeBlock([
                 'boost::python::def("{pyfunc}", &{func}{opt});'.format(
                     pyfunc=utils.check_reserved(func.name),
@@ -26,7 +43,7 @@ class BoostPythonFunctionBuilder(base.FunctionBuilder):
         else:
             result = utils.CodeBlock([])
             for i, func_cur in enumerate(func.functions):
-                option = func.option(i)
+                option = func.option(i, self.option)
                 def_ = 'boost::python::def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
                     pyfunc=utils.check_reserved(func.name),
                     func=func.cpp_name,
@@ -51,7 +68,7 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
             class_name = method.functions[0].semantic_parent.type.spelling
         if len(method.functions) == 1:
             func_cur = method.functions[0]
-            option = method.option(0)
+            option = method.option(0, self.option)
             decl = "&{cls}::{func}".format(cls=class_name, func=method.name)
             pyname = method.pyname()
             # operator special case
@@ -70,16 +87,16 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
         else:
             result = utils.CodeBlock([])
             for i, func_cur in enumerate(method.functions):
-                option = method.option(i)
+                option = method.option(i, self.option)
                 cast_scope = ""
-                if not func.is_static_method():
+                if not func_cur.is_static_method():
                     cast_scope = "{}::".format(class_name)
                 decl = "static_cast<{rtype}({scope}*)({args}){const}>(&{cls}::{func})".format(
                     cls=class_name,
                     func=utils.check_reserved(method.name),
                     rtype=method.result_type(func_cur),
                     args=", ".join(method.arg_types(func_cur)),
-                    const=" const" if func.is_const_method() else "",
+                    const=" const" if func_cur.is_const_method() else "",
                     scope=cast_scope,
                 )
                 pyname = method.pyname()
@@ -236,6 +253,83 @@ class BoostPythonClassBuilder(base.ClassBuilder):
         if optional:
             tmp.append("boost::python::optional<{}>".format(", ".join(optional)))
         return "boost::python::init<{}>()".format(", ".join(tmp))
+
+    def class_wrapper(self, class_):
+        body = utils.CodeBlock()
+        if class_.constructors:
+            body .append("using {0}::{1};".format(class_.decl, class_.name))
+        for method in class_.virtual_methods:
+            if method.kind == clang.cindex.CursorKind.DESTRUCTOR:
+                # special case for pure virtual destructor
+                if method.is_pure_virtual_method():
+                    body += utils.CodeBlock([
+                        "~{}Wrapper()".format(class_.name),
+                        "{}",
+                    ])
+                continue
+            # CXX_METHOD
+            result_type = Function.result_type(method)
+            name = method.spelling
+            pyname = utils.check_reserved(name)
+            if method.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
+                if not name.startswith("_"):
+                    pyname = utils.check_reserved("_" + name)
+            const_type = ""
+            if method.is_const_method():
+                const_type = " const"
+
+            # declaration
+            args = []
+            args_with_type = []
+            for i, arg in enumerate(method.get_arguments()):
+                type_str = utils.canonical_type(arg.type)
+                args.append(arg.spelling or "_{}".format(i))
+                args_with_type.append("{} {}".format(type_str, arg.spelling or "_{}".format(i)))
+            tmp = utils.CodeBlock([
+                "{} {} ({}){} override {{".format(
+                    result_type,
+                    name,
+                    ", ".join(args_with_type),
+                    const_type
+                ),
+            ])
+
+            # body
+            ret = ""
+            if result_type != "void":
+                ret = "return "
+            auto = name
+            while auto in args:
+                auto += "_"
+            tmp.append(utils.CodeBlock([
+                'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, pyname),
+                utils.CodeBlock([
+                    "{}{}({});".format(ret, auto, ", ".join(args)),
+                ]),
+                "} else {",
+                utils.CodeBlock([
+                    "{}{}::{}({});".format(ret, class_.name, name, ", ".join(args)),
+                ]),
+                "}",
+            ]))
+            tmp.append("}")
+            body += tmp
+
+        if class_.enable_protected:
+            for name in class_.protected_methods:
+                body.append("using {}::{};".format(class_.name, name))
+
+        return utils.CodeBlock([
+            "class {} :".format("{}Wrapper".format(class_.name)),
+            utils.CodeBlock([
+                "public {},".format(class_.decl),
+                "public boost::python::wrapper<{}>".format(class_.decl),
+            ]),
+            "{",
+            "public:",
+            body,
+            "};",
+        ])
 
 
 class BoostPythonEnumBuilder(base.EnumBuilder):

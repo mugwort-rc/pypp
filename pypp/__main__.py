@@ -24,6 +24,8 @@ def main(argv):
     parser.add_argument("--strip-path", default=None)
     parser.add_argument("--include-path", "-I", nargs="+", default=[])
     parser.add_argument("--defines", "-D", nargs="+", default=[])
+    parser.add_argument("--install-common-h", default=False, action="store_true")
+    parser.add_argument("--common-h", default="common.h", type=str)
     parser.add_argument("--install-defvisitor", default=False, action="store_true")
     parser.add_argument("--enable-protected", default=False, action="store_true")
     parser.add_argument("--after-shell", default=False, action="store_true")
@@ -72,10 +74,12 @@ def main(argv):
         "input": args.input,
         "init_name": name2snake(args.input) if args.name is None else args.name,
         "class_forward_declarations": generator.class_forward_declarations,
+        "install_common_h": args.install_common_h,
+        "common_h": args.common_h,
         "install_defvisitor": args.install_defvisitor,
         "def_visitors": generator.def_visitors(),
         "has_decls": generator.has_decl_code(),
-        "decl_code": generator.decl_code(),
+        "decl_code": generator.decl_code(option),
         "generated": generated,
     }
     print(template.render(ctx))

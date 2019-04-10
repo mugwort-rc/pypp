@@ -99,3 +99,30 @@ class CodeBlock(list):
                 if cls.check_block_comment(line):
                     return True
         return False
+
+
+RE_VECTOR = re.compile(r"^(const\s+)?std::vector\<(?P<T>.+?), std::allocator\<(?P=T)\s*\>\s*\>(\s*&)?")
+RE_STD_BASIC = re.compile(r"std(?:::__cxx11)?::basic_(\w+)\<(char|wchar_t)\>")
+def std_basic_repl(m):
+    w = "w" if m.group(2) == "wchar_t" else ""
+    return "std::" + w + m.group(1)
+
+STD_SIZE_T = "unsigned long"  # libclang 32bit
+
+def type_simplify(type_str):
+    type_str = RE_STD_BASIC.sub(std_basic_repl, type_str)
+    if "std::vector" in type_str:
+        m = RE_VECTOR.match(type_str)
+        if m:
+            # std::vector default allocator
+            const = m.group(1) or ""
+            ref = m.group(3) or ""
+            return const + "std::vector<{}>".format(m.group(2)) + ref
+    return type_str
+
+def canonical_type(type):
+    spelling = type.spelling
+    simple = type_simplify(type.get_canonical().spelling)
+    if "std::size_t" in spelling:
+        simple = simple.replace(STD_SIZE_T, "std::size_t")
+    return simple

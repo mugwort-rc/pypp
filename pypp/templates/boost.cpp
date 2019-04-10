@@ -6,6 +6,9 @@
 #include "{{ input }}"{% for name in class_forward_declarations %}
 // TODO: forward declaration class {{ name }}{% endfor %}
 
+{% if install_common_h %}
+#include "{{ common_h }}"{% endif %}
+
 {% if install_defvisitor %}
 {% for name in def_visitors %}
 #include "{{ name }}.hpp"{% endfor %}

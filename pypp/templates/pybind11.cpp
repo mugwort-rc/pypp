@@ -6,6 +6,9 @@
 #include "{{ input }}"{% for name in class_forward_declarations %}
 // TODO: forward declaration class {{ name }}{% endfor %}
 
+{% if install_common_h %}
+#include "{{ common_h }}"{% endif %}
+
 {% if install_defvisitor %}
 {% for name in def_visitors %}
 #include "{{ name }}.hpp"{% endfor %}
@@ -13,6 +16,6 @@
 {% if has_decls %}
 {{ decl_code }}
 {% endif %}
-void init_{{ init_name }}(pybind11::handle scope) {
+void init_{{ init_name }}(pybind11::module scope) {
 {{ generated }}
 }

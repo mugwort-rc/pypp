@@ -54,19 +54,19 @@ class Function(object):
         self.functions = []
         self.decls = utils.CodeBlock([])
         self.overload_decls = []
-        self.value_policies = []
+        self.return_values = []
 
     def add_function(self, node):
         assert node.spelling == self.name
         self.functions.append(node)
 
         self.register_overloads(node)
-        self.register_return_value_policy(node)
+        self.register_return_value(node)
 
     def has_decl_code(self):
         return bool(self.decls)
 
-    def decl_code(self):
+    def decl_code(self, opt):
         return self.decls
 
     def to_code_block(self, opt):
@@ -78,20 +78,13 @@ class Function(object):
 
     @classmethod
     def result_type(cls, node):
-        result_type = node.result_type
-        if cls.is_std_type(result_type):
-            return result_type.spelling
-        return result_type.get_canonical().spelling
+        return utils.canonical_type(node.result_type)
 
     @classmethod
     def arg_types(cls, node):
-        #return [x.type.get_canonical().spelling for x in node.get_arguments()]
         args = []
         for arg in node.get_arguments():
-            if cls.is_std_type(arg.type):
-                args.append(arg.type.spelling)
-                continue
-            args.append(arg.type.get_canonical().spelling)
+            args.append(utils.canonical_type(arg.type))
         return args
 
     @classmethod
@@ -149,30 +142,17 @@ class Function(object):
             n = i
         return suffix, n, len(args)
 
-    def option(self, suffix):
+    def option(self, suffix, opt):
         overload = self.overload_decls[suffix]
-        policy = self.value_policies[suffix]
+        policy = opt.return_value_policy.make(self.return_values[suffix])
         if overload or policy:
             if overload and policy:
                 return ", {}[{}]".format(overload, policy)
             return ", {}".format(overload or policy)
         return ""
 
-    def register_return_value_policy(self, node):
-        result_type = self.result_type(node)
-        if result_type.endswith("*") or result_type.endswith("&"):
-            # TODO: other types
-            if result_type.endswith("*"):
-                policy = "boost::python::return_opaque_pointer"
-            elif result_type.endswith("&"):
-                # TODO: internal reference case
-                if result_type.startswith("const"):
-                    policy = "boost::python::copy_const_reference"
-                else:
-                    policy = "boost::python::copy_non_const_reference"
-            self.value_policies.append("boost::python::return_value_policy<{}>()".format(policy))
-        else:
-            self.value_policies.append("")
+    def register_return_value(self, node):
+        self.return_values.append(self.result_type(node))
 
     @property
     def cpp_name(self):
@@ -235,6 +215,20 @@ class Method(Function):
 
     def has_static_method(self):
         return any(map(lambda x: x.is_static_method(), self.functions))
+
+    def method_type_count(self):
+        member = 0
+        static = 0
+        for func in self.functions:
+            if func.is_static_method():
+                static += 1
+            else:
+                member += 1
+        return member, static
+
+    def is_static_mixed(self):
+        member, static = self.method_type_count()
+        return static > 0 and member > 0
 #class Method
 
 
@@ -367,11 +361,11 @@ class Class(object):
                 return True
         return False
 
-    def decl_code(self):
+    def decl_code(self, opt):
         result = utils.CodeBlock([])
         # wrapper
         if self.has_wrapper():
-            result += self.class_wrapper()
+            result += opt.class_.class_wrapper(self)
         # function overloads
         for item in self.methods.values():
             if item.decls:
@@ -380,85 +374,6 @@ class Class(object):
 
     def to_code_block(self, opt):
         return opt.class_.make(self)
-
-    def class_wrapper(self):
-        body = utils.CodeBlock()
-        if self.constructors:
-            body .append("using {0}::{1};".format(self.decl, self.name))
-        for method in self.virtual_methods:
-            if method.kind == clang.cindex.CursorKind.DESTRUCTOR:
-                # special case for pure virtual destructor
-                if method.is_pure_virtual_method():
-                    body += utils.CodeBlock([
-                        "~{}Wrapper()".format(self.name),
-                        "{}",
-                    ])
-                continue
-            # CXX_METHOD
-            result_type = Function.result_type(method)
-            name = method.spelling
-            pyname = utils.check_reserved(name)
-            if method.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
-                if not name.startswith("_"):
-                    pyname = utils.check_reserved("_" + name)
-            const_type = ""
-            if method.is_const_method():
-                const_type = " const"
-
-            # declaration
-            args = []
-            args_with_type = []
-            for i, arg in enumerate(method.get_arguments()):
-                type_str = arg.type.spelling
-                if not Function.is_std_type(arg.type):
-                    type_str = arg.type.get_canonical().spelling
-                args.append(arg.spelling or "_{}".format(i))
-                args_with_type.append("{} {}".format(type_str, arg.spelling or "_{}".format(i)))
-            tmp = utils.CodeBlock([
-                "{} {} ({}){} override {{".format(
-                    result_type,
-                    name,
-                    ", ".join(args_with_type),
-                    const_type
-                ),
-            ])
-
-            # body
-            ret = ""
-            if result_type != "void":
-                ret = "return "
-            auto = name
-            while auto in args:
-                auto += "_"
-            tmp.append(utils.CodeBlock([
-                'if ( auto {0} = this->get_override("{1}") ) {{'.format(auto, pyname),
-                utils.CodeBlock([
-                    "{}{}({});".format(ret, auto, ", ".join(args)),
-                ]),
-                "} else {",
-                utils.CodeBlock([
-                    "{}{}::{}({});".format(ret, self.name, name, ", ".join(args)),
-                ]),
-                "}",
-            ]))
-            tmp.append("}")
-            body += tmp
-
-        if self.enable_protected:
-            for name in self.protected_methods:
-                body.append("using {}::{};".format(self.name, name))
-
-        return utils.CodeBlock([
-            "class {} :".format("{}Wrapper".format(self.name)),
-            utils.CodeBlock([
-                "public {},".format(self.decl),
-                "public boost::python::wrapper<{}>".format(self.decl),
-            ]),
-            "{",
-            "public:",
-            body,
-            "};",
-        ])
 #class Class
 
 
@@ -509,16 +424,16 @@ class Generator(Generator):
                 return True
         return False
 
-    def decl_code(self):
+    def decl_code(self, opt):
         block = utils.CodeBlock([])
         # overloads or virtual methods
         for value in self.classes.values():
             if value.has_decl_code():
-                block += value.decl_code()
+                block += value.decl_code(opt)
         # overloads
         for value in self.functions.values():
             if value.has_decl_code():
-                block += value.decl_code()
+                block += value.decl_code(opt)
         return "\n".join(block.to_code())
 
     def def_visitors(self):
