@@ -25,16 +25,16 @@ class BoostPythonFunctionBuilder(base.FunctionBuilder):
                 result = utils.CodeBlock.wrap_inline_comment(result)
         else:
             result = utils.CodeBlock([])
-            for i, func in enumerate(func.functions):
+            for i, func_cur in enumerate(func.functions):
                 option = func.option(i)
                 def_ = 'boost::python::def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
                     pyfunc=utils.check_reserved(func.name),
                     func=func.cpp_name,
-                    rtype=func.result_type(func),
-                    args=", ".join(func.arg_types(func)),
+                    rtype=func.result_type(func_cur),
+                    args=", ".join(func.arg_types(func_cur)),
                     opt=option,
                 )
-                if func.has_function_pointer(func):
+                if func.has_function_pointer(func_cur):
                     # TODO: wrap callable object
                     def_ = "//{}".format(def_)
                 result.append(def_)
@@ -50,13 +50,13 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
         if class_name is None:
             class_name = method.functions[0].semantic_parent.type.spelling
         if len(method.functions) == 1:
-            func = method.functions[0]
+            func_cur = method.functions[0]
             option = method.option(0)
             decl = "&{cls}::{func}".format(cls=class_name, func=method.name)
             pyname = method.pyname()
             # operator special case
             if utils.is_convertible_operator_name(method.name):
-                pyname = method.resolve_operator_map(func)
+                pyname = method.resolve_operator_map(func_cur)
             result = utils.CodeBlock([
                 '.def("{func}", {decl}{opt})'.format(
                     func=pyname,
@@ -64,12 +64,12 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
                     opt=option
                 ),
             ])
-            if method.has_function_pointer(func):
+            if method.has_function_pointer(func_cur):
                 # TODO: wrap callable object
                 result = utils.CodeBlock.wrap_inline_comment(result)
         else:
             result = utils.CodeBlock([])
-            for i, func in enumerate(method.functions):
+            for i, func_cur in enumerate(method.functions):
                 option = method.option(i)
                 cast_scope = ""
                 if not func.is_static_method():
@@ -77,8 +77,8 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
                 decl = "static_cast<{rtype}({scope}*)({args}){const}>(&{cls}::{func})".format(
                     cls=class_name,
                     func=utils.check_reserved(method.name),
-                    rtype=method.result_type(func),
-                    args=", ".join(method.arg_types(func)),
+                    rtype=method.result_type(func_cur),
+                    args=", ".join(method.arg_types(func_cur)),
                     const=" const" if func.is_const_method() else "",
                     scope=cast_scope,
                 )
@@ -91,7 +91,7 @@ class BoostPythonMethodBuilder(base.MethodBuilder):
                     decl=decl,
                     opt=option,
                 )
-                if method.has_function_pointer(func):
+                if method.has_function_pointer(func_cur):
                     # TODO: wrap callable object
                     def_ = "//{}".format(def_)
                 result.append(def_)
