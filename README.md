@@ -74,7 +74,7 @@ void helloworld()
     std::cout << "Hello World!" << std::endl;
 }
 
-$ python -m pypp helloworld.hpp
+$ python -m pypp helloworld.hpp --experimental-pybind11
 // generate by pypp
 // original source code: helloworld.hpp
 
@@ -102,7 +102,7 @@ public:
     }
 };
 
-$ python -m pypp class.hpp
+$ python -m pypp class.hpp --experimental-pybind11
 // generate by pypp
 // original source code: class.hpp
 
@@ -129,7 +129,7 @@ void helloworld()
     std::cout << "Hello World!" << std::endl;
 }
 
-$ python -m pypp helloworld.hpp
+$ python -m pypp helloworld.hpp --experimental-embind
 // generate by pypp
 // original source code: helloworld.hpp
 
@@ -157,7 +157,7 @@ public:
     }
 };
 
-$ python -m pypp class.hpp
+$ python -m pypp class.hpp --experimental-embind
 // generate by pypp
 // original source code: class.hpp
 
