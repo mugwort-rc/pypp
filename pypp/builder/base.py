@@ -8,8 +8,8 @@ class BuilderBase:
         raise NotImplementedError
 
 
-class ReturnValuePolicyBuilder(BuilderBase):
-    def make(self, result_type):
+class OptionBuilder(BuilderBase):
+    def make(self, entity):
         raise NotImplementedError
 
 class FunctionBuilder(BuilderBase):

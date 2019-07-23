@@ -9,8 +9,9 @@ from ..generator import Function
 from .. import utils
 
 
-class BoostPythonReturnValuePolicyBuilder(base.ReturnValuePolicyBuilder):
-    def make(self, result_type):
+class BoostPythonOptionBuilder(base.OptionBuilder):
+    def make(self, entity):
+        result_type = entity.result_type()
         if result_type.endswith("*") or result_type.endswith("&"):
             # TODO: other types
             if result_type.endswith("*"):

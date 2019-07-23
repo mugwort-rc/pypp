@@ -9,26 +9,20 @@ from ..generator import Function
 from .. import utils
 
 
-class Pybind11OptionBuilder(base.OptionBuilder):
+class EmbindOptionBuilder(base.OptionBuilder):
     def make(self, entity):
-        result_type = entity.result_type()
-        if result_type.endswith("&"):
+        if entity.has_pointer_arg_ret():
             # TODO: other types
-            if result_type.endswith("&"):
-                # TODO: internal reference case
-                if result_type.startswith("const"):
-                    return "pybind11::return_value_policy::reference_internal"
-                else:
-                    return "pybind11::return_value_policy::reference"
+            return "emscripten::allow_raw_pointers()"
         return ""
 
 
-class Pybind11FunctionBuilder(base.FunctionBuilder):
+class EmbindFunctionBuilder(base.FunctionBuilder):
     def make(self, func):
         if len(func.functions) == 1:
             option = func.option(0, self.option)
             result = utils.CodeBlock([
-                'scope.def("{pyfunc}", &{func}{opt});'.format(
+                'emscripten::function("{pyfunc}", &{func}{opt});'.format(
                     pyfunc=utils.check_reserved(func.name),
                     func=func.cpp_name,
                     opt=option
@@ -41,7 +35,7 @@ class Pybind11FunctionBuilder(base.FunctionBuilder):
             result = utils.CodeBlock([])
             for i, func_cur in enumerate(func.functions):
                 option = func.option(i, self.option)
-                def_ = 'scope.def("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
+                def_ = 'emscripten::function("{pyfunc}", static_cast<{rtype}(*)({args})>(&{func}){opt});'.format(
                     pyfunc=utils.check_reserved(func.name),
                     func=func.cpp_name,
                     rtype=func.result_type(func_cur),
@@ -59,7 +53,7 @@ class Pybind11FunctionBuilder(base.FunctionBuilder):
         return result
 
 
-class Pybind11MethodBuilder(base.MethodBuilder):
+class EmbindMethodBuilder(base.MethodBuilder):
     def make(self, method, class_name=None):
         if class_name is None:
             class_name = method.functions[0].semantic_parent.type.spelling
@@ -72,7 +66,7 @@ class Pybind11MethodBuilder(base.MethodBuilder):
             if utils.is_convertible_operator_name(method.name):
                 pyname = method.resolve_operator_map(func_cur)
             result = utils.CodeBlock([
-                '.def("{func}", {decl}{opt})'.format(
+                '.function("{func}", {decl}{opt})'.format(
                     func=pyname,
                     decl=decl,
                     opt=option
@@ -103,7 +97,7 @@ class Pybind11MethodBuilder(base.MethodBuilder):
                 # mixed static member case
                 if func_cur.is_static_method() and method.is_static_mixed():
                     pyname += "Static"
-                def_ = '.def{static}("{func}", {decl}{opt})'.format(
+                def_ = '.function{static}("{func}", {decl}{opt})'.format(
                     static="_static" if func_cur.is_static_method() else "",
                     func=pyname,
                     decl=decl,
@@ -120,22 +114,18 @@ class Pybind11MethodBuilder(base.MethodBuilder):
         return result
 
 
-class Pybind11ClassBuilder(base.ClassBuilder):
+class EmbindClassBuilder(base.ClassBuilder):
     def make(self, clss):
         code = utils.CodeBlock([])
         defs = utils.CodeBlock([])
         assignment = ""
         if clss.enable_scope:
-            assignment = "auto pybind11_{} = ".format(utils.name2snake(clss.decl))
+            assignment = "auto emscripten_{} = ".format(utils.name2snake(clss.decl))
         class_ = clss.decl
         if clss.has_wrapper():
             class_ = "{}, Py{}".format(clss.decl, clss.name)
         bases = ""
-        if clss.bases:
-            class_ += ", " + ", ".join([x.type.get_canonical().spelling for x in clss.bases])
-            if len(clss.bases) > 1:
-                bases = ", pybind11::multiple_inheritance()"
-        held = ", std::shared_ptr<{}>".format(clss.decl)
+        held = ""
         # TODO: held class option
         noncopy = ""
         opt = held + noncopy
@@ -147,7 +137,7 @@ class Pybind11ClassBuilder(base.ClassBuilder):
         if clss.has_pure_virtual_method():
             constructor_count = 0
         code.append(
-        '{assign}pybind11::class_<{cls}{opt}>(scope, "{pycls}"{bases})'.format(
+        '{assign}emscripten::class_<{cls}{opt}>(scope, "{pycls}"{bases})'.format(
             assign=assignment,
             cls=class_,
             pycls=utils.check_reserved(clss.name),
@@ -165,15 +155,14 @@ class Pybind11ClassBuilder(base.ClassBuilder):
                 continue
             inits.append(init)
         for init in inits:
-            defs.append('.def({})'.format(init))
+            defs.append('.constructor<{}>()'.format(init))
         # def_visitor
         if clss.enable_defvisitor:
-            defs.append(".def({}())".format(clss.defvisitor_name))
+            defs.append(".function({}())".format(clss.defvisitor_name))
         for item in clss.methods.values():
             defs += item.to_code_block(self.option)
         for prop, node in clss.properties.items():
-            mode = "only" if node.type.is_const_qualified() else "write"
-            defs.append('.def_read{0}("{1}", &{2}::{1})'.format(mode, prop, class_))
+            defs.append('.property("{0}", &{1}::{0})'.format(prop, class_))
         if clss.enable_protected:
             protected_static_methods = []
             for name, item in clss.protected_methods.items():
@@ -196,92 +185,22 @@ class Pybind11ClassBuilder(base.ClassBuilder):
             else:
                 optional.append(arg.type.spelling)
         if optional:
-            tmp.append("pybind11::optional<{}>".format(", ".join(optional)))
-        return "pybind11::init<{}>()".format(", ".join(tmp))
+            tmp.append("{}".format(", ".join(optional)))
+        return ", ".join(tmp)
 
     def class_wrapper(self, class_):
         body = utils.CodeBlock()
-        if class_.constructors:
-            body .append("using {0}::{1};".format(class_.decl, class_.name))
-        for method in class_.virtual_methods:
-            if method.kind == clang.cindex.CursorKind.DESTRUCTOR:
-                # special case for pure virtual destructor
-                if method.is_pure_virtual_method():
-                    body += utils.CodeBlock([
-                        "~Py{}()".format(class_.name),
-                        "{}",
-                    ])
-                continue
-            # CXX_METHOD
-            result_type = Function.result_type(method)
-            name = method.spelling
-            pyname = utils.check_reserved(name)
-            if method.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
-                if not name.startswith("_"):
-                    pyname = utils.check_reserved("_" + name)
-            const_type = ""
-            if method.is_const_method():
-                const_type = " const"
-
-            # declaration
-            args = []
-            args_with_type = []
-            for i, arg in enumerate(method.get_arguments()):
-                type_str = utils.canonical_type(arg.type)
-                args.append(arg.spelling or "_{}".format(i))
-                args_with_type.append("{} {}".format(type_str, arg.spelling or "_{}".format(i)))
-            tmp = utils.CodeBlock([
-                "{} {} ({}){} override {{".format(
-                    result_type,
-                    name,
-                    ", ".join(args_with_type),
-                    const_type
-                ),
-            ])
-
-            # body
-            inbody = utils.CodeBlock([])
-            if ","in result_type:
-                # https://pybind11.readthedocs.io/en/stable/advanced/misc.html#general-notes-regarding-convenience-macros
-                inbody.append("typedef {} ReturnValue_t;".format(result_type))
-                result_type = "ReturnValue_t"
-            inbody.append(
-                "PYBIND11_OVERLOAD{pure}({ret_type}, {cls_name}, {func_name}{args});".format(
-                    pure="_PURE" if method.is_pure_virtual_method() else "",
-                    ret_type=result_type,
-                    cls_name=class_.name,
-                    func_name=name,
-                    args=(", " + ", ".join(args)) if args else ""
-                )
-            )
-            tmp.append(inbody)
-            tmp.append("}")
-            body += tmp
-
-        if class_.enable_protected:
-            for name in class_.protected_methods:
-                body.append("using {}::{};".format(class_.name, name))
-
-        return utils.CodeBlock([
-            "class {} :".format("Py{}".format(class_.name)),
-            utils.CodeBlock([
-                "public {}".format(class_.decl),
-            ]),
-            "{",
-            "public:",
-            body,
-            "};",
-        ])
+        return body
 
 
-class Pybind11EnumBuilder(base.EnumBuilder):
+class EmbindEnumBuilder(base.EnumBuilder):
     def make(self, enum):
         scope = ""
         value_scope = ""
         pybind11_scope = "scope"
         if enum.scope:
             scope = value_scope = enum.scope + "::"
-            pybind11_scope = "pybind11_" + utils.name2snake(enum.scope)
+            pybind11_scope = "emscripten_" + utils.name2snake(enum.scope)
         if enum.scoped_enum:
             value_scope += enum.name + "::"
         values = ['.value("{}", {})'.format(utils.check_reserved(x), value_scope+x) for x in enum.values]

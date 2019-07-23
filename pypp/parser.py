@@ -44,13 +44,14 @@ class AstParser(object):
         "-std=c++1y",
     ]
 
-    def __init__(self, headers=[], include_path=[], lib_path=[], defines=[]):
+    def __init__(self, headers=[], include_path=[], lib_path=[], defines=[], allow_all=False):
         self.index = clang.cindex.Index.create()
         self.headers = headers
         self.include_path = include_path
         self.lib_path = lib_path
         self.defines = defines
         self.errors = []
+        self.allow_all = allow_all
 
     def parse(self, source):
         #assert source.endswith(".h") or source.endswith(".hpp")
@@ -67,7 +68,7 @@ class AstParser(object):
         unit = self.index.parse("<entrypoint>.cpp", clang_args, src,
                             TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
         self.errors = list(unit.diagnostics)
-        return AstNodeRoot(unit.cursor, source)
+        return AstNodeRoot(self, unit.cursor, source)
 
     def dump_errors(self, fileobj):
         if not self.errors:
@@ -96,13 +97,15 @@ class AstNode(object):
 
 
 class AstNodeRoot(AstNode):
-    def __init__(self, node, source):
+    def __init__(self, parser, node, source):
         super(AstNodeRoot, self).__init__(node)
+        self.parser = parser
         self.source = source
 
     def __iter__(self):
         for child in self.ptr.get_children():
-            if not child.location.file.name.endswith(self.source):
+            if not self.parser.allow_all and not child.location.file.name.endswith(self.source):
+                print("continue")
                 continue
             yield AstNode(child)
 

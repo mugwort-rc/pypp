@@ -13,6 +13,7 @@ from jinja2 import Environment, PackageLoader
 
 from pypp.parser import AstParser
 from pypp.generator import Generator
+from pypp.option import GeneratorType
 from pypp.option import GeneratorOption
 from pypp.utils import name2snake
 
@@ -31,6 +32,8 @@ def main(argv):
     parser.add_argument("--after-shell", default=False, action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--experimental-pybind11", action="store_true")
+    parser.add_argument("--experimental-embind", action="store_true")
+    parser.add_argument("--allow-all", action="store_true")
     # for linux
     parser.add_argument("--using-gcc-version", default="7")
 
@@ -41,8 +44,14 @@ def main(argv):
     )
 
     pybind11 = args.experimental_pybind11
+    embind = args.experimental_embind
+    if pybind11 and embind:
+        print("can't enable both pybind11 and embind", file=sys.stderr)
+        return 1
     if pybind11:
         template = env.get_template("pybind11.cpp")
+    elif embind:
+        template = env.get_template("embind.cpp")
     else:
         template = env.get_template("boost.cpp")
 
@@ -50,7 +59,7 @@ def main(argv):
     if os.name == "posix":
         include_path.append("/usr/lib/gcc/x86_64-linux-gnu/{}/include/".format(args.using_gcc_version))
 
-    ast_parser = AstParser(headers=args.headers, include_path=include_path, defines=args.defines)
+    ast_parser = AstParser(headers=args.headers, include_path=include_path, defines=args.defines, allow_all=args.allow_all)
     node = ast_parser.parse(args.input)
 
     if args.verbose:
@@ -63,7 +72,12 @@ def main(argv):
         enable_protected=args.enable_protected,
     )
 
-    option = GeneratorOption(boost=not(pybind11))
+    type = GeneratorType.Boost
+    if pybind11:
+        type = GeneratorType.Pybind11
+    elif embind:
+        type = GeneratorType.Embind
+    option = GeneratorOption(type=type)
 
     generated = generator.generate(node, option)
 

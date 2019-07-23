@@ -47,6 +47,24 @@ class Generator(NodeVisitor):
 #class Generator
 
 
+class FunctionEntity(object):
+    def __init__(self, definition, node):
+        self.definition = definition
+        self.func = node
+
+    def result_type(self):
+        return Function.result_type(self.func)
+
+    def arg_types(self):
+        return Function.arg_types(self.func)
+
+    def has_function_pointer(self):
+        return Function.has_function_pointer(self.func)
+
+    def has_pointer_arg_ret(self):
+        return Function.has_pointer_arg_ret(self.func)
+
+
 class Function(object):
     def __init__(self, name, namespaces=[]):
         self.name = name
@@ -103,6 +121,15 @@ class Function(object):
         return False
 
     @classmethod
+    def has_pointer_arg_ret(cls, node):
+        if "*" in cls.result_type(node):
+            return True
+        for type in cls.arg_types(node):
+            if "*" in type:
+                return True
+        return False
+
+    @classmethod
     def has_default_value(cls, arg):
         childs = [x for x in arg.get_children() if x.kind not in NOT_DEFAULT_ARG_KINDS]
         return len(childs) > 0
@@ -144,7 +171,7 @@ class Function(object):
 
     def option(self, suffix, opt):
         overload = self.overload_decls[suffix]
-        policy = opt.return_value_policy.make(self.return_values[suffix])
+        policy = opt.option.make(FunctionEntity(self, self.functions[suffix]))
         if overload or policy:
             if overload and policy:
                 return ", {}[{}]".format(overload, policy)
