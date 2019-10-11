@@ -332,7 +332,8 @@ class Class(object):
         # skip implement part
         if not self.is_declaration_part(node):
             return
-        assert node.semantic_parent.spelling == self.name
+        semantic_parent_name = node.semantic_parent.spelling
+        assert semantic_parent_name == self.name or semantic_parent_name == ""
         if node.access_specifier == clang.cindex.AccessSpecifier.PUBLIC:
             # init if it is not added
             if node.spelling not in self.properties:
@@ -427,6 +428,7 @@ class Generator(Generator):
         self.enums = OrderedDict()
         self.enable_defvisitor = enable_defvisitor
         self.enable_protected = enable_protected
+        self.unnamed_hint = {}
 
     def generate(self, node, opt):
         assert isinstance(node, AstNode)
@@ -470,25 +472,33 @@ class Generator(Generator):
                 result.append(class_.defvisitor_name)
         return result
 
-    @classmethod
-    def full_namespace(cls, ptr):
-        if ptr is None or ptr.kind == clang.cindex.CursorKind.TRANSLATION_UNIT:
+    def full_namespace(self, ptr, name=None):
+        if ptr.hash in self.unnamed_hint:
+            return self.unnamed_hint[ptr.hash]
+        if ptr is None or ptr.kind in [clang.cindex.CursorKind.TRANSLATION_UNIT, clang.cindex.CursorKind.UNEXPOSED_DECL]:
             return []
-        return cls.full_namespace(ptr.semantic_parent) + [ptr.spelling]
+        if name is None:
+            if ptr.spelling == "":
+                # unnamed typedef special case
+                return []
+            name = ptr.spelling
+        return self.full_namespace(ptr.semantic_parent) + [name]
 
-    @classmethod
-    def scope_id(cls, ptr):
-        return ".".join(cls.full_namespace(ptr))
+    def scope_id(self, ptr, name=None):
+        return ".".join(self.full_namespace(ptr, name=name))
 
-    @classmethod
-    def full_declaration(cls, ptr):
-        return "::".join(cls.full_namespace(ptr))
+    def full_declaration(self, ptr):
+        return "::".join(self.full_namespace(ptr))
 
-    @classmethod
-    def namespaces(cls, ptr):
-        return cls.full_namespace(ptr.semantic_parent)
+    def namespaces(self, ptr):
+        return self.full_namespace(ptr.semantic_parent)
 
     def visit_TRANSLATION_UNIT(self, node):
+        for child in node:
+            self.visit(child)
+
+    def visit_UNEXPOSED_DECL(self, node):
+        # extern "C" {}
         for child in node:
             self.visit(child)
 
@@ -503,16 +513,28 @@ class Generator(Generator):
             self.functions[func_id] = Function(function_name, namespaces=self.namespaces(node.ptr))
         self.functions[func_id].add_function(node.ptr)
 
-    def visit_CLASS_DECL(self, node):
-        self._class_decl(node)
+    def visit_CLASS_DECL(self, node, name=None):
+        self._class_decl(node, name=name)
 
-    def visit_STRUCT_DECL(self, node):
-        self._class_decl(node, struct=True)
+    def visit_STRUCT_DECL(self, node, name=None):
+        self._class_decl(node, name=name, struct=True)
 
-    def _class_decl(self, node, struct=False):
-        name = node.ptr.spelling
-        class_id = self.scope_id(node.ptr)
-        assert class_id not in self.classes
+    def _class_decl(self, node, name=None, struct=False):
+        # unnamed special case
+        if name is None:
+            # pure class/struct definition
+            if not node.ptr.spelling:
+                # typedef with unnamed definition
+                # STRUCT_DECL :  <- now!
+                #     FIELD_DECL : ...
+                #     ...
+                # TYPEDEF_DECL : typedef_name
+                #     STRUCT_DECL : <- name=typedef_name (see visit_TYPEDEF_DECL)
+                return
+            # pure named class/struct definition
+            name = node.ptr.spelling
+        class_id = self.scope_id(node.ptr, name=name)
+        assert class_id not in self.classes, "{!r} already stored {!r}".format(class_id, self.classes.keys())
         self.classes[class_id] = Class(name, decl=node.ptr.type.spelling, enable_defvisitor=self.enable_defvisitor, enable_protected=self.enable_protected)
         pure_virtual_destructor = False
         disable_copy_constructor = False
@@ -586,7 +608,7 @@ class Generator(Generator):
     def visit_FIELD_DECL(self, node):
         class_name = node.ptr.semantic_parent.spelling
         class_id = self.scope_id(node.ptr.semantic_parent)
-        assert class_id in self.classes
+        assert class_id in self.classes, "{!r} not in {!r}".format(class_id, self.classes.keys())
         self.classes[class_id].add_property(node.ptr)
 
     def visit_ENUM_DECL(self, node, name=None):
@@ -606,7 +628,25 @@ class Generator(Generator):
             self.enums[name].add_value(child.ptr)
 
     def visit_TYPEDEF_DECL(self, node):
+        """
+        for typedef with unnamed definition
+
+        ENUM_DECL : 
+            ENUM_CONSTANT_DECL : Item1
+            ENUM_CONSTANT_DECL : Item2
+        TYPEDEF : EnumName
+            ENUM_DECL :
+                ENUM_CONSTANT_DECL : Item1
+                ENUM_CONSTANT_DECL : Item2
+        """
         for child in node:
+            if child.ptr.spelling:
+                continue
+            self.unnamed_hint[child.ptr.hash] = self.full_namespace(node.ptr)
             if child.ptr.kind == clang.cindex.CursorKind.ENUM_DECL:
                 self.visit_ENUM_DECL(child, name=node.ptr.spelling)
+            elif child.ptr.kind == clang.cindex.CursorKind.CLASS_DECL:
+                self.visit_CLASS_DECL(child, name=node.ptr.spelling)
+            elif child.ptr.kind == clang.cindex.CursorKind.STRUCT_DECL:
+                self.visit_STRUCT_DECL(child, name=node.ptr.spelling)
 #class Generator
