@@ -105,7 +105,6 @@ class AstNodeRoot(AstNode):
     def __iter__(self):
         for child in self.ptr.get_children():
             if not self.parser.allow_all and not child.location.file.name.endswith(self.source):
-                print("continue")
                 continue
             yield AstNode(child)
 
