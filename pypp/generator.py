@@ -188,6 +188,10 @@ class Function(object):
 
 
 class Method(Function):
+    def __init__(self, parent, name, namespaces=[]):
+        super().__init__(name, namespaces=namespaces)
+        self.parent = parent
+
     def to_code_block(self, opt, class_name=None):
         return opt.method.make(self, class_name)
 
@@ -198,7 +202,7 @@ class Method(Function):
 
     def register_overloads(self, node):
         class_name = node.semantic_parent.spelling
-        class_decl = Generator.full_declaration(node.semantic_parent)
+        class_decl = self.parent.full_declaration
         suffix, minarg, maxarg = self._overload_info(node)
 
         if minarg == 0 or minarg == maxarg:
@@ -268,9 +272,10 @@ class ProtectedMethod(Method):
 
 
 class Class(object):
-    def __init__(self, name, decl=None, enable_defvisitor=False, enable_protected=False, enable_scope=False, namespaces=[]):
+    def __init__(self, name, decl=None, full_declaration=None, enable_defvisitor=False, enable_protected=False, enable_scope=False, namespaces=[]):
         self.name = name
         self.decl = decl if decl else name
+        self.full_declaration = full_declaration or name
         self.bases = []
         self.methods = OrderedDict()
         self.protected_methods = OrderedDict()
@@ -315,12 +320,12 @@ class Class(object):
         elif node.access_specifier == clang.cindex.AccessSpecifier.PROTECTED:
             # init if it is not added
             if node.spelling not in self.protected_methods:
-                self.protected_methods[node.spelling] = ProtectedMethod(node.spelling)
+                self.protected_methods[node.spelling] = ProtectedMethod(self, node.spelling)
             self.protected_methods[node.spelling].add_function(node)
         elif node.access_specifier == clang.cindex.AccessSpecifier.PUBLIC:
             # init if it is not added
             if node.spelling not in self.methods:
-                self.methods[node.spelling] = Method(node.spelling)
+                self.methods[node.spelling] = Method(self, node.spelling)
             self.methods[node.spelling].add_function(node)
             if node.is_static_method():
                 if node.spelling not in self.static_methods:
@@ -535,7 +540,13 @@ class Generator(Generator):
             name = node.ptr.spelling
         class_id = self.scope_id(node.ptr, name=name)
         assert class_id not in self.classes, "{!r} already stored {!r}".format(class_id, self.classes.keys())
-        self.classes[class_id] = Class(name, decl=node.ptr.type.spelling, enable_defvisitor=self.enable_defvisitor, enable_protected=self.enable_protected)
+        self.classes[class_id] = Class(
+            name,
+            decl=node.ptr.type.spelling,
+            full_declaration=self.full_declaration(node.ptr),
+            enable_defvisitor=self.enable_defvisitor,
+            enable_protected=self.enable_protected
+        )
         pure_virtual_destructor = False
         disable_copy_constructor = False
         disable_copy_operator = False
@@ -631,7 +642,7 @@ class Generator(Generator):
         """
         for typedef with unnamed definition
 
-        ENUM_DECL : 
+        ENUM_DECL :
             ENUM_CONSTANT_DECL : Item1
             ENUM_CONSTANT_DECL : Item2
         TYPEDEF : EnumName
