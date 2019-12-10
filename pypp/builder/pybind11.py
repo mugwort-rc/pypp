@@ -173,7 +173,7 @@ class Pybind11ClassBuilder(base.ClassBuilder):
             defs += item.to_code_block(self.option)
         for prop, node in clss.properties.items():
             mode = "only" if node.type.is_const_qualified() else "write"
-            defs.append('.def_read{0}("{1}", &{2}::{1})'.format(mode, prop, class_))
+            defs.append('.def_read{0}("{1}", &{2}::{1})'.format(mode, prop, clss.decl))
         if clss.enable_protected:
             protected_static_methods = []
             for name, item in clss.protected_methods.items():
@@ -193,10 +193,10 @@ class Pybind11ClassBuilder(base.ClassBuilder):
         for arg in args:
             if not Function.has_default_value(arg):
                 tmp.append(arg.type.spelling)
-            else:
-                optional.append(arg.type.spelling)
-        if optional:
-            tmp.append("pybind11::optional<{}>".format(", ".join(optional)))
+            #else:
+            #    optional.append(arg.type.spelling)
+        #if optional:
+        #    tmp.append("pybind11::optional<{}>".format(", ".join(optional)))
         return "pybind11::init<{}>()".format(", ".join(tmp))
 
     def class_wrapper(self, class_):

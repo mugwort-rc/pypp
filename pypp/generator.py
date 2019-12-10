@@ -635,7 +635,9 @@ class Generator(Generator):
         # TODO: namespace wrapped case; e.g. namespace ns { enum en { a, b, c }; }
         self.enums[name] = Enum(name, scoped_enum=node.ptr.is_scoped_enum(), scope="::".join(self.namespaces(node.ptr)))
         for child in node:
-            assert child.ptr.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL
+            if child.ptr.kind == clang.cindex.CursorKind.UNEXPOSED_ATTR:
+                continue
+            assert child.ptr.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL, "{!r}".format(child.ptr.kind)
             self.enums[name].add_value(child.ptr)
 
     def visit_TYPEDEF_DECL(self, node):

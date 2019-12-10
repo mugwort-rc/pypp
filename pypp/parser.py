@@ -41,7 +41,7 @@ CLANG_ERROR_SEVERITY = [
 class AstParser(object):
 
     clang_args = [
-        "-std=c++1y",
+        "-std=c++17",
     ]
 
     def __init__(self, headers=[], include_path=[], lib_path=[], defines=[], allow_all=False):
