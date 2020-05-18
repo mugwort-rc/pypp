@@ -72,7 +72,8 @@ class Pybind11MethodBuilder(base.MethodBuilder):
             if utils.is_convertible_operator_name(method.name):
                 pyname = method.resolve_operator_map(func_cur)
             result = utils.CodeBlock([
-                '.def("{func}", {decl}{opt})'.format(
+                '.def{static}("{func}", {decl}{opt})'.format(
+                    static="_static" if func_cur.is_static_method() else "",
                     func=pyname,
                     decl=decl,
                     opt=option

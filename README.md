@@ -21,32 +21,32 @@ libclang=/usr/lib/llvm-8/lib/libclang.so
 #### Hello world
 
 ```
-$ cat helloworld.hpp
+$ cat samples/helloworld.hpp
 void helloworld()
 {
     std::cout << "Hello World!" << std::endl;
 }
 
-$ python -m pypp helloworld.hpp
+$ python -m pypp samples/helloworld.hpp
 // generate by pypp
-// original source code: helloworld.hpp
+// original source code: samples/helloworld.hpp
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "helloworld.hpp"
+#include "samples/helloworld.hpp"
 
 
-void init_helloworld_hpp(pybind11::module scope)
-{
+void init_samples_helloworld_hpp(pybind11::module scope) {
     scope.def("helloworld", &helloworld);
 }
+
 ```
 
 #### class
 
 ```
-$ cat class.hpp
+$ cat samples/class.hpp
 class Calc
 {
 public:
@@ -56,19 +56,19 @@ public:
     }
 };
 
-$ python -m pypp class.hpp
+$ python -m pypp samples/class.hpp
 // generate by pypp
-// original source code: class.hpp
+// original source code: samples/class.hpp
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "class.hpp"
+#include "samples/class.hpp"
 
 
-void init_class_hpp(pybind11::module scope) {
+void init_samples_class_hpp(pybind11::module scope) {
     pybind11::class_<Calc, std::shared_ptr<Calc>>(scope, "Calc")
-        .def("add", &Calc::add)
+        .def_static("add", &Calc::add)
         ;
 }
 ```
@@ -78,22 +78,16 @@ void init_class_hpp(pybind11::module scope) {
 #### Hello world
 
 ```
-$ cat helloworld.hpp
-void helloworld()
-{
-    std::cout << "Hello World!" << std::endl;
-}
-
-$ python -m pypp helloworld.hpp --generate-boost
+$ python -m pypp samples/helloworld.hpp --generate-boost
 // generate by pypp
-// original source code: helloworld.hpp
+// original source code: samples/helloworld.hpp
 
 #include <boost/python.hpp>
 
-#include "helloworld.hpp"
+#include "samples/helloworld.hpp"
 
 
-void init_helloworld_hpp()
+void init_samples_helloworld_hpp()
 {
     boost::python::def("helloworld", &helloworld);
 }
@@ -102,26 +96,16 @@ void init_helloworld_hpp()
 #### class
 
 ```
-$ cat class.hpp
-class Calc
-{
-public:
-    static int add(int a, int b)
-    {
-        return a + b;
-    }
-};
-
-$ python -m pypp class.hpp --generate-boost
+$ python -m pypp samples/class.hpp --generate-boost
 // generate by pypp
 // original source code: class.hpp
 
 #include <boost/python.hpp>
 
-#include "class.hpp"
+#include "samples/class.hpp"
 
 
-void init_class_hpp()
+void init_samples_class_hpp()
 {
     boost::python::class_<Calc>("Calc", boost::python::no_init)
         .def("add", &Calc::add)
@@ -135,22 +119,16 @@ void init_class_hpp()
 #### Hello world
 
 ```
-$ cat helloworld.hpp
-void helloworld()
-{
-    std::cout << "Hello World!" << std::endl;
-}
-
-$ python -m pypp helloworld.hpp --generate-embind
+$ python -m pypp samples/helloworld.hpp --generate-embind
 // generate by pypp
-// original source code: helloworld.hpp
+// original source code: samples/helloworld.hpp
 
 #include <emscripten/bind.h>
 
-#include "helloworld.hpp"
+#include "samples/helloworld.hpp"
 
 
-void init_helloworld_hpp()
+void init_samples_helloworld_hpp()
 {
     emscripten::function("helloworld", &helloworld);
 }
@@ -159,26 +137,16 @@ void init_helloworld_hpp()
 #### class
 
 ```
-$ cat class.hpp
-class Calc
-{
-public:
-    static int add(int a, int b)
-    {
-        return a + b;
-    }
-};
-
 $ python -m pypp class.hpp --generate-embind
 // generate by pypp
-// original source code: class.hpp
+// original source code: samples/class.hpp
 
 #include <emscripten/bind.h>
 
-#include "class.hpp"
+#include "samples/class.hpp"
 
 
-void init_class_hpp() {
+void init_samples_class_hpp() {
     emscripten::class_<Calc>(scope, "Calc")
         .function("add", &Calc::add)
         ;

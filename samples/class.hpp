@@ -4,7 +4,7 @@
 class Calc
 {
 public:
-    static add(int a, int b)
+    static int add(int a, int b)
     {
         return a + b;
     }
