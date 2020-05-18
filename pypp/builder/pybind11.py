@@ -156,13 +156,9 @@ class Pybind11ClassBuilder(base.ClassBuilder):
             )
         )
         # constructor
-        has_default = False
         inits = []
         for node in constructors:
             init = self.init(node)
-            if init == "":
-                has_default = True
-                continue
             inits.append(init)
         for init in inits:
             defs.append('.def({})'.format(init))
@@ -174,10 +170,13 @@ class Pybind11ClassBuilder(base.ClassBuilder):
         for prop, node in clss.properties.items():
             mode = "only" if node.type.is_const_qualified() else "write"
             defs.append('.def_read{0}("{1}", &{2}::{1})'.format(mode, prop, clss.decl))
+        for prop, node in clss.static_properties.items():
+            mode = "only" if node.type.spelling.startswith("const ") else "write"
+            defs.append('.def_read{0}_static("{1}", &{2}::{1})'.format(mode, prop, clss.decl))
         if clss.enable_protected:
             protected_static_methods = []
             for name, item in clss.protected_methods.items():
-                defs += item.to_code_block(self.option, class_name=class_)
+                defs += item.to_code_block(self.option, class_name=clss.decl)
                 if item.has_static_method():
                     protected_static_methods.append(name)
         defs.append(";")
@@ -187,7 +186,7 @@ class Pybind11ClassBuilder(base.ClassBuilder):
     def init(self, node):
         args = list(node.get_arguments())
         if len(args) == 0:
-            return ""
+            return "pybind11::init<>()"
         tmp = []
         optional = []
         for arg in args:

@@ -41,10 +41,10 @@ class NodeVisitor(object):
 #class NodeVisitor
 
 
-class Generator(NodeVisitor):
+class GeneratorBase(NodeVisitor):
     def generate(self, node):
         raise NotImplementedError
-#class Generator
+#class GeneratorBase
 
 
 class FunctionEntity(object):
@@ -280,6 +280,7 @@ class Class(object):
         self.methods = OrderedDict()
         self.protected_methods = OrderedDict()
         self.properties = OrderedDict()
+        self.static_properties = OrderedDict()
         self.static_methods = []
         self.virtual_methods = []
         self.constructors = []
@@ -343,6 +344,17 @@ class Class(object):
             # init if it is not added
             if node.spelling not in self.properties:
                 self.properties[node.spelling] = node
+
+    def add_static_property(self, node):
+        # skip implement part
+        if not self.is_declaration_part(node):
+            return
+        semantic_parent_name = node.semantic_parent.spelling
+        assert semantic_parent_name == self.name or semantic_parent_name == ""
+        if node.access_specifier == clang.cindex.AccessSpecifier.PUBLIC:
+            # init if it is not added
+            if node.spelling not in self.properties:
+                self.static_properties[node.spelling] = node
 
     def set_noncopyable(self, b):
         self.noncopyable = self.noncopyable or b
@@ -425,7 +437,7 @@ class Enum(object):
 #class Enum
 
 
-class Generator(Generator):
+class Generator(GeneratorBase):
     def __init__(self, enable_defvisitor=False, enable_protected=False):
         self.classes = OrderedDict()
         self.class_forward_declarations = []
@@ -621,6 +633,12 @@ class Generator(Generator):
         class_id = self.scope_id(node.ptr.semantic_parent)
         assert class_id in self.classes, "{!r} not in {!r}".format(class_id, self.classes.keys())
         self.classes[class_id].add_property(node.ptr)
+
+    def visit_VAR_DECL(self, node):
+        class_name = node.ptr.semantic_parent.spelling
+        class_id = self.scope_id(node.ptr.semantic_parent)
+        assert class_id in self.classes, "{!r} not in {!r}".format(class_id, self.classes.keys())
+        self.classes[class_id].add_static_property(node.ptr)
 
     def visit_ENUM_DECL(self, node, name=None):
         # unnamed special case
