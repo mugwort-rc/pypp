@@ -1,7 +1,7 @@
 pypp
 ======
 
-boost.python/pybin11/embind generator.
+pybin11 / boost.python / embind generator.
 
 Usage
 -----
