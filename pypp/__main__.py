@@ -36,7 +36,7 @@ def main(argv):
     parser.add_argument("--generate-embind", action="store_true")
     parser.add_argument("--allow-all", action="store_true")
     # for linux
-    parser.add_argument("--using-gcc-version", default="7")
+    parser.add_argument("--using-gcc-version", default="9")
 
     args = parser.parse_args(argv)
 
