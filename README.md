@@ -12,6 +12,7 @@ Usage
 
 ```
 $ sudo apt-get install libclang1-10
+$ pip install -r requirements.txt
 ```
 
 #### configuration

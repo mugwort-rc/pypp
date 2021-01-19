@@ -52,6 +52,7 @@ class AstParser(object):
         self.defines = defines
         self.errors = []
         self.allow_all = allow_all
+        self.skip_function_bodies = True
 
     def parse(self, source):
         #assert source.endswith(".h") or source.endswith(".hpp")
@@ -65,8 +66,10 @@ class AstParser(object):
         src = [
             ("<entrypoint>.cpp", "\n".join(lines)),
         ]
-        unit = self.index.parse("<entrypoint>.cpp", clang_args, src,
-                            TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
+        args = []
+        if self.skip_function_bodies:
+            args.append(TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
+        unit = self.index.parse("<entrypoint>.cpp", clang_args, src, *args)
         self.errors = list(unit.diagnostics)
         return AstNodeRoot(self, unit.cursor, source)
 
