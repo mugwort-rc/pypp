@@ -13,7 +13,8 @@ Usage
 ```
 $ cat .PYPP_LIBCLANG_PATH
 [llvm]
-libclang=/usr/lib/llvm-8/lib/libclang.so
+# Ubuntu 20.04
+libclang=/usr/lib/llvm-10/lib/libclang.so
 ```
 
 ### pybind11
