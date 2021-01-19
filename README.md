@@ -6,15 +6,28 @@ pybin11 / boost.python / embind generator.
 Usage
 -----
 
-## Config
+### Ubuntu 20.04
 
-### Ubuntu 18.04
+#### install requirements
 
 ```
-$ cat .PYPP_LIBCLANG_PATH
+$ sudo apt-get install libclang1-10
+```
+
+#### configuration
+
+```
+$ echo "export PYPP_LIBCLANG_PATH='/usr/lib/llvm-10/lib/libclang.so.1'" > .envrc
+$ direnv allow
+```
+
+or
+
+```
+$ cat - << EOS > .PYPP_LIBCLANG_PATH
 [llvm]
-# Ubuntu 20.04
 libclang=/usr/lib/llvm-10/lib/libclang.so
+EOS
 ```
 
 ### pybind11
