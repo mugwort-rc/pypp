@@ -11,14 +11,14 @@ Usage
 #### install requirements
 
 ```
-$ sudo apt-get install libclang1-10
+$ sudo apt-get install libclang1-11
 $ pip install -r requirements.txt
 ```
 
 #### configuration
 
 ```
-$ echo "export PYPP_LIBCLANG_PATH='/usr/lib/llvm-10/lib/libclang.so.1'" > .envrc
+$ echo "export PYPP_LIBCLANG_PATH='/usr/lib/llvm-11/lib/libclang.so.1'" > .envrc
 $ direnv allow
 ```
 
@@ -27,7 +27,7 @@ or
 ```
 $ cat - << EOS > .PYPP_LIBCLANG_PATH
 [llvm]
-libclang=/usr/lib/llvm-10/lib/libclang.so
+libclang=/usr/lib/llvm-11/lib/libclang.so.1
 EOS
 ```
 

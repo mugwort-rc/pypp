@@ -10,7 +10,7 @@ from clang.cindex import TranslationUnit
 
 LIBCLANG_PATH = None
 LIBCLANG_PATH_DEFAULT = {
-    "posix": "/usr/lib/llvm-8/lib/libclang.so",  # Ubuntu 18.04
+    "posix": "/usr/lib/llvm-11/lib/libclang.so.1",  # Ubuntu 20.04
     "nt": r"C:\Program Files\LLVM\bin\libclang.dll",
 }
 
