@@ -424,6 +424,7 @@ class Generator(GeneratorBase):
         self.enable_defvisitor = enable_defvisitor
         self.enable_protected = enable_protected
         self.unnamed_hint = {}
+        self.vars = OrderedDict()
 
     def generate(self, node, opt):
         assert isinstance(node, AstNode)
@@ -613,10 +614,14 @@ class Generator(GeneratorBase):
         self.classes[class_id].add_property(node.ptr)
 
     def visit_VAR_DECL(self, node):
-        class_name = node.ptr.semantic_parent.spelling
-        class_id = self.scope_id(node.ptr.semantic_parent)
-        assert class_id in self.classes, "{!r} not in {!r}".format(class_id, self.classes.keys())
-        self.classes[class_id].add_static_property(node.ptr)
+        if node.ptr.semantic_parent.kind == clang.cindex.CursorKind.NAMESPACE:
+            name = node.ptr.spelling
+            self.vars[name] = node.ptr
+        else:
+            class_name = node.ptr.semantic_parent.spelling
+            class_id = self.scope_id(node.ptr.semantic_parent)
+            assert class_id in self.classes, "{!r} not in {!r} @ {}".format(class_id, self.classes.keys(), node.ptr.spelling)
+            self.classes[class_id].add_static_property(node.ptr)
 
     def visit_ENUM_DECL(self, node, name=None):
         # unnamed special case
